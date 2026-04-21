@@ -19,6 +19,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+use tokio::task::JoinSet;
 use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info};
@@ -28,11 +29,25 @@ use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
 use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret};
 
 const MAX_LOG_LINES: usize = 50;
+const API_CACHE_TTL_SECONDS: u64 = 15;
 
 #[derive(Clone)]
 struct AppState {
     client: Option<Client>,
     auth: Arc<AuthState>,
+    cache: Arc<RwLock<ApiCache>>,
+}
+
+#[derive(Default)]
+struct ApiCache {
+    context: Option<CacheEntry<ContextInfo>>,
+    namespaces: HashMap<String, CacheEntry<Vec<NamespaceItem>>>,
+    workloads: HashMap<String, CacheEntry<Vec<WorkloadItem>>>,
+}
+
+struct CacheEntry<T> {
+    value: T,
+    expires_at: Instant,
 }
 
 struct AuthState {
@@ -46,12 +61,12 @@ struct JwksCache {
     expires_at: Instant,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct NamespaceItem {
     name: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct WorkloadItem {
     kind: String,
     name: String,
@@ -122,7 +137,7 @@ struct PodStatusItem {
     restarts: i32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct ContextInfo {
     kube_context: Option<String>,
     cluster: Option<String>,
@@ -173,6 +188,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             required,
             jwks_cache: RwLock::new(None),
         }),
+        cache: Arc::new(RwLock::new(ApiCache::default())),
     };
 
     let api = Router::new()
@@ -211,6 +227,10 @@ fn gcloud_config_path() -> String {
     std::env::var("CLOUDSDK_CONFIG").unwrap_or_else(|_| "/root/.config/gcloud".to_string())
 }
 
+fn context_cache_key(context: Option<&str>) -> String {
+    context.unwrap_or("__default").to_string()
+}
+
 async fn build_client_for_context(context: Option<&str>) -> Result<Client, StatusCode> {
     let kubeconfig = Kubeconfig::read_from(kubeconfig_path()).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let options = KubeConfigOptions {
@@ -223,7 +243,19 @@ async fn build_client_for_context(context: Option<&str>) -> Result<Client, Statu
     Client::try_from(config).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
-async fn get_context() -> Result<Json<ContextInfo>, StatusCode> {
+async fn get_context(
+    State(state): State<AppState>,
+) -> Result<Json<ContextInfo>, StatusCode> {
+    let now = Instant::now();
+    {
+        let cache = state.cache.read().await;
+        if let Some(entry) = cache.context.as_ref() {
+            if entry.expires_at > now {
+                return Ok(Json(entry.value.clone()));
+            }
+        }
+    }
+
     let kube_config = match tokio::fs::read_to_string(kubeconfig_path()).await {
         Ok(contents) => serde_yaml::from_str::<KubeConfigFile>(&contents).ok(),
         Err(_) => None,
@@ -257,12 +289,22 @@ async fn get_context() -> Result<Json<ContextInfo>, StatusCode> {
         Err(_) => None,
     };
 
-    Ok(Json(ContextInfo {
+    let context_info = ContextInfo {
         kube_context,
         cluster,
         gcloud_project,
         contexts,
-    }))
+    };
+
+    {
+        let mut cache = state.cache.write().await;
+        cache.context = Some(CacheEntry {
+            value: context_info.clone(),
+            expires_at: now + Duration::from_secs(API_CACHE_TTL_SECONDS),
+        });
+    }
+
+    Ok(Json(context_info))
 }
 
 async fn auth_middleware(
@@ -379,9 +421,21 @@ struct JwkKey {
 }
 
 async fn list_namespaces(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<ContextQuery>,
 ) -> Result<Json<Vec<NamespaceItem>>, StatusCode> {
+    let now = Instant::now();
+    let cache_key = context_cache_key(query.context.as_deref());
+
+    {
+        let cache = state.cache.read().await;
+        if let Some(entry) = cache.namespaces.get(&cache_key) {
+            if entry.expires_at > now {
+                return Ok(Json(entry.value.clone()));
+            }
+        }
+    }
+
     let client = build_client_for_context(query.context.as_deref()).await?;
     let api: Api<Namespace> = Api::all(client);
     let namespaces = api
@@ -396,13 +450,43 @@ async fn list_namespaces(
 
     items.sort_by(|a, b| a.name.cmp(&b.name));
 
+    {
+        let mut cache = state.cache.write().await;
+        cache
+            .namespaces
+            .retain(|_, entry| entry.expires_at > now);
+        cache.namespaces.insert(
+            cache_key,
+            CacheEntry {
+                value: items.clone(),
+                expires_at: now + Duration::from_secs(API_CACHE_TTL_SECONDS),
+            },
+        );
+    }
+
     Ok(Json(items))
 }
 
 async fn list_workloads(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Query(query): Query<WorkloadQuery>,
 ) -> Result<Json<Vec<WorkloadItem>>, StatusCode> {
+    let now = Instant::now();
+    let cache_key = format!(
+        "{}|{}",
+        query.namespace,
+        context_cache_key(query.context.as_deref())
+    );
+
+    {
+        let cache = state.cache.read().await;
+        if let Some(entry) = cache.workloads.get(&cache_key) {
+            if entry.expires_at > now {
+                return Ok(Json(entry.value.clone()));
+            }
+        }
+    }
+
     let client = build_client_for_context(query.context.as_deref()).await?;
     let mut workloads = Vec::new();
 
@@ -411,6 +495,20 @@ async fn list_workloads(
     workloads.extend(list_daemonsets(&client, &query.namespace).await?);
 
     workloads.sort_by(|a, b| a.name.cmp(&b.name));
+
+    {
+        let mut cache = state.cache.write().await;
+        cache
+            .workloads
+            .retain(|_, entry| entry.expires_at > now);
+        cache.workloads.insert(
+            cache_key,
+            CacheEntry {
+                value: workloads.clone(),
+                expires_at: now + Duration::from_secs(API_CACHE_TTL_SECONDS),
+            },
+        );
+    }
 
     Ok(Json(workloads))
 }
@@ -524,95 +622,21 @@ async fn get_logs(
         .as_deref()
         .and_then(|s| s.parse::<DateTime<Utc>>().ok());
 
+    let mut pod_jobs = JoinSet::new();
     for pod in pods {
-        let pod_name = pod.name_any();
+        let pods_api = pods_api.clone();
+        let search = search.clone();
+        let since_time = since_time;
+        let end_filter = end_filter;
 
-        // Determine whether the current container is running and its restart count.
-        let (is_running, restart_count) = {
-            let statuses = pod
-                .status
-                .as_ref()
-                .and_then(|s| s.container_statuses.as_ref());
-            let running = statuses
-                .map(|cs| cs.iter().any(|c| c.state.as_ref()
-                    .and_then(|st| st.running.as_ref())
-                    .is_some()))
-                .unwrap_or(false);
-            let restarts = statuses
-                .map(|cs| cs.iter().map(|c| c.restart_count).max().unwrap_or(0))
-                .unwrap_or(0);
-            (running, restarts)
-        };
+        pod_jobs.spawn(async move {
+            fetch_logs_for_pod(pods_api, pod, since_time, end_filter, since_minutes, &search).await
+        });
+    }
 
-        // Fetch current container logs (only when container is actually running).
-        if is_running {
-            let log_params = if let Some(st) = since_time {
-                LogParams {
-                    follow: false,
-                    timestamps: true,
-                    since_time: Some(st),
-                    ..LogParams::default()
-                }
-            } else {
-                LogParams {
-                    follow: false,
-                    timestamps: true,
-                    since_seconds: Some(i64::from(since_minutes) * 60),
-                    ..LogParams::default()
-                }
-            };
-            if let Ok(log) = pods_api.logs(&pod_name, &log_params).await {
-                for line in log.lines() {
-                    let (timestamp, payload) = split_timestamped_log_line(line);
-                    if !search.is_empty() && !payload.to_lowercase().contains(&search) {
-                        continue;
-                    }
-                    // Drop entries that exceed the requested end time.
-                    if let Some(ref ef) = end_filter {
-                        if let Some(ref ts) = timestamp {
-                            if let Ok(t) = ts.parse::<DateTime<Utc>>() {
-                                if t > *ef {
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                    entries.push(LogEntry {
-                        source: format!("pod/{pod_name}"),
-                        line: payload,
-                        timestamp,
-                    });
-                }
-            }
-        }
-
-        // Fetch previous container logs when the container has restarted at least once.
-        if restart_count > 0 {
-            if let Ok(log) = pods_api
-                .logs(
-                    &pod_name,
-                    &LogParams {
-                        follow: false,
-                        timestamps: true,
-                        previous: true,
-                        tail_lines: Some(i64::try_from(MAX_LOG_LINES).unwrap_or(50)),
-                        ..LogParams::default()
-                    },
-                )
-                .await
-            {
-                for line in log.lines() {
-                    let (timestamp, payload) = split_timestamped_log_line(line);
-                    if !search.is_empty() && !payload.to_lowercase().contains(&search) {
-                        continue;
-                    }
-                    entries.push(LogEntry {
-                        source: format!("pod/{pod_name}/previous"),
-                        line: payload,
-                        timestamp,
-                    });
-                }
-            }
+    while let Some(result) = pod_jobs.join_next().await {
+        if let Ok(mut pod_entries) = result {
+            entries.append(&mut pod_entries);
         }
     }
 
@@ -629,6 +653,110 @@ async fn get_logs(
     }
 
     Ok(Json(entries))
+}
+
+async fn fetch_logs_for_pod(
+    pods_api: Api<Pod>,
+    pod: Pod,
+    since_time: Option<DateTime<Utc>>,
+    end_filter: Option<DateTime<Utc>>,
+    since_minutes: u32,
+    search: &str,
+) -> Vec<LogEntry> {
+    let pod_name = pod.name_any();
+    let mut entries = Vec::new();
+
+    // Determine whether the current container is running and its restart count.
+    let (is_running, restart_count) = {
+        let statuses = pod
+            .status
+            .as_ref()
+            .and_then(|s| s.container_statuses.as_ref());
+        let running = statuses
+            .map(|cs| {
+                cs.iter()
+                    .any(|c| c.state.as_ref().and_then(|st| st.running.as_ref()).is_some())
+            })
+            .unwrap_or(false);
+        let restarts = statuses
+            .map(|cs| cs.iter().map(|c| c.restart_count).max().unwrap_or(0))
+            .unwrap_or(0);
+        (running, restarts)
+    };
+
+    // Fetch current container logs (only when container is actually running).
+    if is_running {
+        let log_params = if let Some(st) = since_time {
+            LogParams {
+                follow: false,
+                timestamps: true,
+                since_time: Some(st),
+                ..LogParams::default()
+            }
+        } else {
+            LogParams {
+                follow: false,
+                timestamps: true,
+                since_seconds: Some(i64::from(since_minutes) * 60),
+                ..LogParams::default()
+            }
+        };
+
+        if let Ok(log) = pods_api.logs(&pod_name, &log_params).await {
+            for line in log.lines() {
+                let (timestamp, payload) = split_timestamped_log_line(line);
+                if !search.is_empty() && !payload.to_lowercase().contains(search) {
+                    continue;
+                }
+                // Drop entries that exceed the requested end time.
+                if let Some(ref ef) = end_filter {
+                    if let Some(ref ts) = timestamp {
+                        if let Ok(t) = ts.parse::<DateTime<Utc>>() {
+                            if t > *ef {
+                                continue;
+                            }
+                        }
+                    }
+                }
+                entries.push(LogEntry {
+                    source: format!("pod/{pod_name}"),
+                    line: payload,
+                    timestamp,
+                });
+            }
+        }
+    }
+
+    // Fetch previous container logs when the container has restarted at least once.
+    if restart_count > 0 {
+        if let Ok(log) = pods_api
+            .logs(
+                &pod_name,
+                &LogParams {
+                    follow: false,
+                    timestamps: true,
+                    previous: true,
+                    tail_lines: Some(i64::try_from(MAX_LOG_LINES).unwrap_or(50)),
+                    ..LogParams::default()
+                },
+            )
+            .await
+        {
+            for line in log.lines() {
+                let (timestamp, payload) = split_timestamped_log_line(line);
+                if !search.is_empty() && !payload.to_lowercase().contains(search) {
+                    continue;
+                }
+                entries.push(LogEntry {
+                    source: format!("pod/{pod_name}/previous"),
+                    line: payload,
+                    timestamp,
+                });
+            }
+        }
+    }
+
+    entries
 }
 
 fn split_timestamped_log_line(line: &str) -> (Option<String>, String) {

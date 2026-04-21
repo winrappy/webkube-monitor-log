@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type NamespaceItem = {
   name: string;
@@ -50,8 +50,10 @@ type ContextInfo = {
 };
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8081";
-const MAX_WORKLOAD_DISPLAY = 6;
+const WORKLOADS_PER_PAGE = 6;
 const MAX_SINCE_MINUTES = 90 * 24 * 60;
+const LOG_PREVIEW_CHARS = 240;
+const PLAIN_LOG_PREVIEW_CHARS = 140;
 
 const sinceOptions: Array<{ label: string; value: number }> = [
   { label: "15 minutes", value: 15 },
@@ -158,11 +160,18 @@ function renderHighlightedText(text: string, searchTerm: string) {
   });
 }
 
+function workloadKindLabel(kind: WorkloadKind): string {
+  return kind === "Deployment" ? "" : kind;
+}
+
 export default function Home() {
+  const logsAbortRef = useRef<AbortController | null>(null);
   const [namespaces, setNamespaces] = useState<NamespaceItem[]>([]);
   const [workloads, setWorkloads] = useState<WorkloadItem[]>([]);
   const [selectedNamespace, setSelectedNamespace] = useState<string>("");
+  const [namespaceSearch, setNamespaceSearch] = useState("");
   const [workloadSearch, setWorkloadSearch] = useState("");
+  const [workloadPage, setWorkloadPage] = useState(1);
   const [selectedWorkload, setSelectedWorkload] = useState<WorkloadItem | null>(
     null
   );
@@ -181,6 +190,7 @@ export default function Home() {
   const [selectedContext, setSelectedContext] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [timeMode, setTimeMode] = useState<"preset" | "custom">("preset");
+  const [expandedLogRows, setExpandedLogRows] = useState<Record<string, boolean>>({});
   // datetime-local string values e.g. "2026-04-21T10:00"
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -248,6 +258,7 @@ export default function Home() {
       setError(null);
       setWorkloads([]);
       setWorkloadSearch("");
+      setWorkloadPage(1);
       setSelectedWorkload(null);
       try {
         const response = await fetch(
@@ -274,6 +285,10 @@ export default function Home() {
     if (!selectedWorkload) {
       return;
     }
+    logsAbortRef.current?.abort();
+    const controller = new AbortController();
+    logsAbortRef.current = controller;
+
     setLoadingLogs(true);
     setError(null);
     try {
@@ -299,13 +314,18 @@ export default function Home() {
       if (selectedContext) {
         params.set("context", selectedContext);
       }
-      const response = await fetch(`${apiBase}/api/logs?${params.toString()}`);
+      const response = await fetch(`${apiBase}/api/logs?${params.toString()}`, {
+        signal: controller.signal,
+      });
       if (!response.ok) {
         throw new Error("Failed to load logs");
       }
       const data = (await response.json()) as LogEntry[];
       setLogs(data);
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return;
+      }
       setError(err instanceof Error ? err.message : "Unknown error");
     } finally {
       setLoadingLogs(false);
@@ -314,14 +334,25 @@ export default function Home() {
 
   // Fetch logs immediately when workload/time/context changes (no periodic polling).
   useEffect(() => {
-    if (selectedWorkload) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      fetchLogs();
-    } else {
-      setLogs([]);
-    }
+    const timer = setTimeout(
+      () => {
+        if (selectedWorkload) {
+          fetchLogs();
+        } else {
+          setLogs([]);
+        }
+      },
+      timeMode === "custom" ? 350 : 0
+    );
+    return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWorkload, sinceMinutes, selectedContext, timeMode, customStart, customEnd]);
+
+  useEffect(() => {
+    return () => {
+      logsAbortRef.current?.abort();
+    };
+  }, []);
 
   const fetchEnv = async (workload: WorkloadItem) => {
     setLoadingEnv(true);
@@ -401,9 +432,36 @@ export default function Home() {
     );
   }, [workloads, workloadSearch]);
 
+  const filteredNamespaces = useMemo(() => {
+    const term = namespaceSearch.trim().toLowerCase();
+    if (!term) {
+      return namespaces;
+    }
+    return namespaces.filter((item) => item.name.toLowerCase().includes(term));
+  }, [namespaces, namespaceSearch]);
+
+  const namespaceSuggestions = useMemo(() => {
+    const term = namespaceSearch.trim();
+    if (!term) {
+      return [] as NamespaceItem[];
+    }
+    return filteredNamespaces.slice(0, 3);
+  }, [filteredNamespaces, namespaceSearch]);
+
+  const totalWorkloadPages = Math.max(
+    1,
+    Math.ceil(filteredWorkloads.length / WORKLOADS_PER_PAGE)
+  );
+
+  const currentWorkloadPage = Math.min(workloadPage, totalWorkloadPages);
+
   const displayedWorkloads = useMemo(
-    () => filteredWorkloads.slice(0, MAX_WORKLOAD_DISPLAY),
-    [filteredWorkloads]
+    () =>
+      filteredWorkloads.slice(
+        (currentWorkloadPage - 1) * WORKLOADS_PER_PAGE,
+        currentWorkloadPage * WORKLOADS_PER_PAGE
+      ),
+    [filteredWorkloads, currentWorkloadPage]
   );
 
   const envByContainer = useMemo(() => {
@@ -499,21 +557,57 @@ export default function Home() {
               <label className="text-xs uppercase tracking-[0.25em] text-muted">
                 Namespace
               </label>
+              <input
+                className="w-full rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none transition focus:border-accent"
+                placeholder="Search namespace"
+                value={namespaceSearch}
+                onChange={(event) => setNamespaceSearch(event.target.value)}
+              />
+              {namespaceSuggestions.length > 0 ? (
+                <div className="flex flex-wrap gap-2">
+                  {namespaceSuggestions.map((item) => (
+                    <button
+                      key={`ns-suggest-${item.name}`}
+                      className="rounded-full border border-line bg-surface px-3 py-1 text-xs text-muted transition hover:border-accent hover:text-foreground"
+                      onClick={() => {
+                        setSelectedNamespace(item.name);
+                        setWorkloadPage(1);
+                      }}
+                    >
+                      {item.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               <div className="rounded-2xl border border-line bg-surface px-4 py-2">
                 {loadingNamespaces ? (
                   <p className="text-sm text-muted">Loading...</p>
                 ) : (
-                  <select
-                    className="w-full bg-transparent text-sm outline-none"
-                    value={selectedNamespace}
-                    onChange={(event) => setSelectedNamespace(event.target.value)}
-                  >
-                    {namespaces.map((item) => (
-                      <option key={item.name} value={item.name}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
+                  <>
+                    <select
+                      className="w-full bg-transparent text-sm outline-none"
+                      value={selectedNamespace}
+                      onChange={(event) => {
+                        setSelectedNamespace(event.target.value);
+                        setWorkloadPage(1);
+                      }}
+                    >
+                      {filteredNamespaces.length > 0 ? (
+                        filteredNamespaces.map((item) => (
+                          <option key={item.name} value={item.name}>
+                            {item.name}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="" disabled>
+                          No namespace matched
+                        </option>
+                      )}
+                    </select>
+                    {namespaceSearch.trim() && filteredNamespaces.length === 0 ? (
+                      <p className="mt-2 text-xs text-muted">No namespace matched search text</p>
+                    ) : null}
+                  </>
                 )}
               </div>
             </div>
@@ -526,7 +620,10 @@ export default function Home() {
                 className="w-full rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none transition focus:border-accent"
                 placeholder="Search workload"
                 value={workloadSearch}
-                onChange={(event) => setWorkloadSearch(event.target.value)}
+                onChange={(event) => {
+                  setWorkloadSearch(event.target.value);
+                  setWorkloadPage(1);
+                }}
               />
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {loadingWorkloads ? (
@@ -548,18 +645,49 @@ export default function Home() {
                         <p className="text-sm font-semibold text-foreground">
                           {item.name}
                         </p>
-                        <p className="text-xs uppercase tracking-[0.2em] text-muted">
-                          {item.kind}
-                        </p>
+                        {workloadKindLabel(item.kind) ? (
+                          <p className="text-xs uppercase tracking-[0.2em] text-muted">
+                            {workloadKindLabel(item.kind)}
+                          </p>
+                        ) : null}
                       </button>
                     ))}
                   </>
                 )}
               </div>
-              {filteredWorkloads.length > MAX_WORKLOAD_DISPLAY ? (
-                <p className="text-xs text-muted">
-                  Showing first {MAX_WORKLOAD_DISPLAY} of {filteredWorkloads.length} workloads
-                </p>
+              {filteredWorkloads.length > 0 ? (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs text-muted">
+                    Showing {(currentWorkloadPage - 1) * WORKLOADS_PER_PAGE + 1}-
+                    {Math.min(currentWorkloadPage * WORKLOADS_PER_PAGE, filteredWorkloads.length)} of{" "}
+                    {filteredWorkloads.length} workloads
+                  </p>
+                  {totalWorkloadPages > 1 ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="rounded-full border border-line px-3 py-1 text-xs text-muted transition hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() => setWorkloadPage((prev) => Math.max(prev - 1, 1))}
+                        disabled={currentWorkloadPage === 1}
+                      >
+                        Prev
+                      </button>
+                      <span className="text-xs text-muted">
+                        {currentWorkloadPage}/{totalWorkloadPages}
+                      </span>
+                      <button
+                        className="rounded-full border border-line px-3 py-1 text-xs text-muted transition hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
+                        onClick={() =>
+                          setWorkloadPage((prev) =>
+                            Math.min(prev + 1, totalWorkloadPages)
+                          )
+                        }
+                        disabled={currentWorkloadPage === totalWorkloadPages}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>
@@ -571,7 +699,9 @@ export default function Home() {
             <div>
               <p className="text-sm text-muted">
                 {selectedWorkload
-                  ? `${selectedWorkload.kind} / ${selectedWorkload.name}`
+                  ? workloadKindLabel(selectedWorkload.kind)
+                    ? `${workloadKindLabel(selectedWorkload.kind)} / ${selectedWorkload.name}`
+                    : selectedWorkload.name
                   : "No workload selected"}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -737,6 +867,34 @@ export default function Home() {
             ) : (
               <ul className="divide-y divide-line">
                 {parsedLogs.map((item, index) => {
+                  const rowKey = `${item.entry.source}-${index}`;
+                  const previewChars = item.isJson
+                    ? LOG_PREVIEW_CHARS
+                    : PLAIN_LOG_PREVIEW_CHARS;
+                  const isLongLog = item.oneLine.length > previewChars;
+                  const isExpanded = Boolean(expandedLogRows[rowKey]);
+                  const displayLine =
+                    isLongLog && !isExpanded
+                      ? `${item.oneLine.slice(0, previewChars)}...`
+                      : item.oneLine;
+
+                  const expandButton = isLongLog ? (
+                    <button
+                      type="button"
+                      className="ml-2 shrink-0 self-start rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold text-muted transition hover:border-accent"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setExpandedLogRows((prev) => ({
+                          ...prev,
+                          [rowKey]: !prev[rowKey],
+                        }));
+                      }}
+                    >
+                      {isExpanded ? "Collapse" : "Expand"}
+                    </button>
+                  ) : null;
+
                   const timeBadge = item.entry.timestamp ? (
                     <span className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-foreground/80">
                       {new Date(item.entry.timestamp).toLocaleString()}
@@ -758,15 +916,16 @@ export default function Home() {
                       {item.isJson && item.parsedJson ? (
                         <details className="bg-background/20">
                           <summary className="list-none cursor-pointer px-3 py-3">
-                              <div className="flex items-center gap-2 text-[11px]">
+                              <div className="flex items-start gap-2 text-[11px]">
                               {timeBadge}
                               {levelBadge}
                               <span className="shrink-0 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-accent">
                                 JSON
                               </span>
-                              <span className="min-w-0 truncate text-foreground">
-                                {renderHighlightedText(item.oneLine, search)}
+                              <span className="min-w-0 flex-1 text-foreground break-all">
+                                {renderHighlightedText(displayLine, search)}
                               </span>
+                              {expandButton}
                             </div>
                           </summary>
                             <pre className="border-t border-line px-3 py-3 whitespace-pre-wrap text-[10px] text-muted">
@@ -775,12 +934,13 @@ export default function Home() {
                         </details>
                       ) : (
                         <div className="bg-background/20 px-3 py-3">
-                            <div className="flex items-center gap-2 text-[11px]">
+                            <div className="flex items-start gap-2 text-[11px]">
                             {timeBadge}
                             {levelBadge}
-                            <span className="min-w-0 truncate text-foreground">
-                              {renderHighlightedText(item.oneLine, search)}
+                            <span className="min-w-0 flex-1 text-foreground break-all">
+                              {renderHighlightedText(displayLine, search)}
                             </span>
+                            {expandButton}
                           </div>
                         </div>
                       )}
