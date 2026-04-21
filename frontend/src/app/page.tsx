@@ -88,6 +88,42 @@ function levelBadgeClass(level: string): string {
   return "border-emerald-400/60 bg-emerald-500/15 text-emerald-200";
 }
 
+function podPhaseBadgeClass(phase: string): string {
+  const upper = phase.toUpperCase();
+  if (upper === "RUNNING") {
+    return "border-emerald-400/60 bg-emerald-500/15 text-emerald-200";
+  }
+  if (upper === "PENDING") {
+    return "border-amber-400/60 bg-amber-500/15 text-amber-200";
+  }
+  if (upper === "SUCCEEDED") {
+    return "border-sky-400/60 bg-sky-500/15 text-sky-200";
+  }
+  if (upper === "FAILED") {
+    return "border-red-400/60 bg-red-500/15 text-red-200";
+  }
+  return "border-slate-400/60 bg-slate-500/15 text-slate-200";
+}
+
+function podReadyBadgeClass(ready: string): string {
+  const [readyCount, totalCount] = ready.split("/").map((value) => Number(value));
+  const isReady =
+    Number.isFinite(readyCount) &&
+    Number.isFinite(totalCount) &&
+    totalCount > 0 &&
+    readyCount >= totalCount;
+  return isReady
+    ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-200"
+    : "border-amber-400/60 bg-amber-500/15 text-amber-200";
+}
+
+function podRestartBadgeClass(restarts: number): string {
+  if (restarts > 0) {
+    return "border-rose-400/60 bg-rose-500/15 text-rose-200";
+  }
+  return "border-slate-400/60 bg-slate-500/15 text-slate-200";
+}
+
 export default function Home() {
   const [namespaces, setNamespaces] = useState<NamespaceItem[]>([]);
   const [workloads, setWorkloads] = useState<WorkloadItem[]>([]);
@@ -186,9 +222,6 @@ export default function Home() {
         }
         const data = (await response.json()) as WorkloadItem[];
         setWorkloads(data);
-        if (data.length > 0) {
-          setSelectedWorkload(data[0]);
-        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
       } finally {
@@ -232,6 +265,7 @@ export default function Home() {
   // Fetch logs immediately when workload/time/context changes (no periodic polling).
   useEffect(() => {
     if (selectedWorkload) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchLogs();
     } else {
       setLogs([]);
@@ -287,6 +321,7 @@ export default function Home() {
 
   useEffect(() => {
     if (selectedWorkload) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchEnv(selectedWorkload);
       fetchPodStatus(selectedWorkload);
     } else {
@@ -496,9 +531,30 @@ export default function Home() {
                   podStatuses.map((pod) => (
                     <span
                       key={pod.name}
-                      className="rounded-full border border-line bg-surface px-3 py-1 text-[10px] text-foreground/90"
+                      className="flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-[10px] text-foreground/90"
                     >
-                      {pod.name} | {pod.phase} | ready {pod.ready} | restart {pod.restarts}
+                      <span className="font-semibold text-foreground">{pod.name}</span>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] ${podPhaseBadgeClass(
+                          pod.phase
+                        )}`}
+                      >
+                        {pod.phase}
+                      </span>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${podReadyBadgeClass(
+                          pod.ready
+                        )}`}
+                      >
+                        ready {pod.ready}
+                      </span>
+                      <span
+                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${podRestartBadgeClass(
+                          pod.restarts
+                        )}`}
+                      >
+                        restart {pod.restarts}
+                      </span>
                     </span>
                   ))
                 ) : selectedWorkload ? (
@@ -571,7 +627,9 @@ export default function Home() {
             <div className="mt-4 min-h-0 flex-1 overflow-auto rounded-2xl border border-line bg-surface-strong p-4 font-mono text-[11px]">
             {parsedLogs.length === 0 ? (
               <p className="text-muted">
-                {loadingLogs
+                {!selectedWorkload
+                  ? "Select a workload to load logs"
+                  : loadingLogs
                   ? "Loading logs..."
                   : "No logs available or no matches"}
               </p>
