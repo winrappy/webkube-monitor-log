@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kubeweb-backend
+    environment:
+      PORT: 8081
+      AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      KUBECONFIG: /root/.kube/config
+      CLOUDSDK_CONFIG: /root/.config/gcloud
+      USE_GKE_GCLOUD_AUTH_PLUGIN: "True"
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "8081:8081"
+    volumes:
+      - ${HOME}/.kube:/root/.kube:ro
+      - ${HOME}/.config/gcloud:/root/.config/gcloud
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args: {}
+    container_name: kubeweb-frontend
+    depends_on:
+      - backend
+    environment:
+      NODE_ENV: production
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3000}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-change-me}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8081}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

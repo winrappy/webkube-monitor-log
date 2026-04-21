@@ -1,0 +1,114 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0d0f12;
+  --foreground: #eef2f2;
+  --surface: #141922;
+  --surface-strong: #1b2431;
+  --accent: #46f0c2;
+  --accent-2: #ff8a7a;
+  --muted: #9bb0c2;
+  --line: #243043;
+  --chip: #1b2a2a;
+  --chip-border: #2f3f3f;
+  --shadow: rgba(10, 12, 16, 0.4);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-space-grotesk);
+  --font-mono: var(--font-plex-mono);
+}
+
+body {
+  background: radial-gradient(
+      1200px 600px at 10% -10%,
+      rgba(70, 240, 194, 0.15),
+      transparent 55%
+    ),
+    radial-gradient(
+      900px 500px at 100% 0%,
+      rgba(255, 138, 122, 0.18),
+      transparent 50%
+    ),
+    var(--background);
+  color: var(--foreground);
+  font-family: var(--font-space-grotesk), system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.glass-panel {
+  background: linear-gradient(135deg, rgba(20, 25, 34, 0.7), rgba(18, 22, 30, 0.85));
+  border: 1px solid rgba(43, 56, 70, 0.6);
+  box-shadow: 0 20px 60px var(--shadow);
+  backdrop-filter: blur(16px);
+}
+
+.grid-lines {
+  background-image: linear-gradient(
+      120deg,
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px
+    ),
+    linear-gradient(30deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 46px 46px;
+}
+
+.text-muted {
+  color: var(--muted);
+}
+
+.text-foreground {
+  color: var(--foreground);
+}
+
+.text-background {
+  color: var(--background);
+}
+
+.text-accent {
+  color: var(--accent);
+}
+
+.bg-surface {
+  background-color: var(--surface);
+}
+
+.bg-surface-strong {
+  background-color: rgba(27, 36, 49, 0.86);
+}
+
+.bg-background {
+  background-color: var(--background);
+}
+
+.bg-chip {
+  background-color: var(--chip);
+}
+
+.bg-accent {
+  background-color: var(--accent);
+}
+
+.border-line {
+  border-color: var(--line);
+}
+
+.border-accent {
+  border-color: var(--accent);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
