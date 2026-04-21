@@ -51,7 +51,7 @@ type ContextInfo = {
 
 const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8081";
 const MAX_WORKLOAD_DISPLAY = 6;
-const MAX_SINCE_MINUTES = 1440;
+const MAX_SINCE_MINUTES = 90 * 24 * 60;
 
 const sinceOptions: Array<{ label: string; value: number }> = [
   { label: "15 minutes", value: 15 },
@@ -60,7 +60,13 @@ const sinceOptions: Array<{ label: string; value: number }> = [
   { label: "3 hours", value: 180 },
   { label: "6 hours", value: 360 },
   { label: "12 hours", value: 720 },
-  { label: "24 hours", value: 1440 },
+  { label: "1 day", value: 1440 },
+  { label: "3 days", value: 4320 },
+  { label: "7 days", value: 10080 },
+  { label: "14 days", value: 20160 },
+  { label: "30 days", value: 43200 },
+  { label: "60 days", value: 86400 },
+  { label: "90 days", value: 129600 },
 ];
 
 function detectLogLevel(data: Record<string, unknown>): string | null {
@@ -124,6 +130,34 @@ function podRestartBadgeClass(restarts: number): string {
   return "border-slate-400/60 bg-slate-500/15 text-slate-200";
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function renderHighlightedText(text: string, searchTerm: string) {
+  const term = searchTerm.trim();
+  if (!term) {
+    return text;
+  }
+
+  const regex = new RegExp(`(${escapeRegExp(term)})`, "ig");
+  const parts = text.split(regex);
+
+  return parts.map((part, index) => {
+    if (part.toLowerCase() === term.toLowerCase()) {
+      return (
+        <mark
+          key={`hl-${index}`}
+          className="rounded bg-amber-300/30 px-0.5 text-amber-100"
+        >
+          {part}
+        </mark>
+      );
+    }
+    return <span key={`txt-${index}`}>{part}</span>;
+  });
+}
+
 export default function Home() {
   const [namespaces, setNamespaces] = useState<NamespaceItem[]>([]);
   const [workloads, setWorkloads] = useState<WorkloadItem[]>([]);
@@ -146,6 +180,10 @@ export default function Home() {
   const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null);
   const [selectedContext, setSelectedContext] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [timeMode, setTimeMode] = useState<"preset" | "custom">("preset");
+  // datetime-local string values e.g. "2026-04-21T10:00"
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
 
   useEffect(() => {
     const fetchNamespaces = async () => {
@@ -244,8 +282,20 @@ export default function Home() {
         kind: selectedWorkload.kind,
         name: selectedWorkload.name,
         search: search.trim(),
-        since_minutes: String(Math.min(Math.max(sinceMinutes, 1), MAX_SINCE_MINUTES)),
       });
+      if (timeMode === "custom") {
+        if (customStart) {
+          params.set("start_time", new Date(customStart).toISOString());
+        }
+        if (customEnd) {
+          params.set("end_time", new Date(customEnd).toISOString());
+        }
+      } else {
+        params.set(
+          "since_minutes",
+          String(Math.min(Math.max(sinceMinutes, 1), MAX_SINCE_MINUTES))
+        );
+      }
       if (selectedContext) {
         params.set("context", selectedContext);
       }
@@ -271,7 +321,7 @@ export default function Home() {
       setLogs([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedWorkload, sinceMinutes, selectedContext]);
+  }, [selectedWorkload, sinceMinutes, selectedContext, timeMode, customStart, customEnd]);
 
   const fetchEnv = async (workload: WorkloadItem) => {
     setLoadingEnv(true);
@@ -564,17 +614,68 @@ export default function Home() {
             </div>
             {activeTab === "logs" ? (
               <div className="flex flex-wrap items-center gap-3">
-                <select
-                  className="rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none transition focus:border-accent"
-                  value={sinceMinutes}
-                  onChange={(event) => setSinceMinutes(Number(event.target.value))}
+                {/* Time mode toggle */}
+                <button
+                  onClick={() =>
+                    setTimeMode((m) => (m === "preset" ? "custom" : "preset"))
+                  }
+                  className={`rounded-full border px-3 py-2 text-xs font-medium transition ${
+                    timeMode === "custom"
+                      ? "border-accent bg-chip text-accent"
+                      : "border-line bg-surface text-muted hover:border-accent"
+                  }`}
+                  title={
+                    timeMode === "preset"
+                      ? "Switch to custom date range"
+                      : "Switch to preset time range"
+                  }
                 >
-                  {sinceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  {timeMode === "preset" ? "Custom range" : "Preset range"}
+                </button>
+
+                {timeMode === "preset" ? (
+                  <select
+                    className="rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none transition focus:border-accent"
+                    value={sinceMinutes}
+                    onChange={(event) =>
+                      setSinceMinutes(Number(event.target.value))
+                    }
+                  >
+                    {sinceOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex items-center gap-1">
+                      <label className="text-[10px] uppercase tracking-[0.2em] text-muted">
+                        From
+                      </label>
+                      <input
+                        type="datetime-local"
+                        className="rounded-full border border-line bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent"
+                        value={customStart}
+                        max={customEnd || undefined}
+                        onChange={(event) => setCustomStart(event.target.value)}
+                      />
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <label className="text-[10px] uppercase tracking-[0.2em] text-muted">
+                        To
+                      </label>
+                      <input
+                        type="datetime-local"
+                        className="rounded-full border border-line bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent"
+                        value={customEnd}
+                        min={customStart || undefined}
+                        onChange={(event) => setCustomEnd(event.target.value)}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 <input
                   className="w-56 rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none transition focus:border-accent"
                   placeholder="Search logs"
@@ -664,7 +765,7 @@ export default function Home() {
                                 JSON
                               </span>
                               <span className="min-w-0 truncate text-foreground">
-                                {item.oneLine}
+                                {renderHighlightedText(item.oneLine, search)}
                               </span>
                             </div>
                           </summary>
@@ -678,7 +779,7 @@ export default function Home() {
                             {timeBadge}
                             {levelBadge}
                             <span className="min-w-0 truncate text-foreground">
-                              {item.oneLine}
+                              {renderHighlightedText(item.oneLine, search)}
                             </span>
                           </div>
                         </div>

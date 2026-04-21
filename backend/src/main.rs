@@ -23,6 +23,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tracing::{error, info};
 
+use chrono::{DateTime, Utc};
 use k8s_openapi::api::apps::v1::{DaemonSet, Deployment, StatefulSet};
 use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Pod, Secret};
 
@@ -78,6 +79,10 @@ struct LogQuery {
     name: String,
     search: Option<String>,
     since_minutes: Option<u32>,
+    /// RFC-3339 absolute start timestamp (custom range mode)
+    start_time: Option<String>,
+    /// RFC-3339 absolute end timestamp (custom range mode)
+    end_time: Option<String>,
     context: Option<String>,
 }
 
@@ -507,7 +512,17 @@ async fn get_logs(
 
     let mut entries = Vec::new();
     let search = query.search.unwrap_or_default().to_lowercase();
-    let since_minutes = query.since_minutes.unwrap_or(15).clamp(1, 1440);
+    let since_minutes = query.since_minutes.unwrap_or(15).clamp(1, 129_600);
+
+    // Parse optional absolute time bounds.
+    let since_time: Option<DateTime<Utc>> = query
+        .start_time
+        .as_deref()
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
+    let end_filter: Option<DateTime<Utc>> = query
+        .end_time
+        .as_deref()
+        .and_then(|s| s.parse::<DateTime<Utc>>().ok());
 
     for pod in pods {
         let pod_name = pod.name_any();
@@ -531,22 +546,36 @@ async fn get_logs(
 
         // Fetch current container logs (only when container is actually running).
         if is_running {
-            if let Ok(log) = pods_api
-                .logs(
-                    &pod_name,
-                    &LogParams {
-                        follow: false,
-                        timestamps: true,
-                        since_seconds: Some(i64::from(since_minutes) * 60),
-                        ..LogParams::default()
-                    },
-                )
-                .await
-            {
+            let log_params = if let Some(st) = since_time {
+                LogParams {
+                    follow: false,
+                    timestamps: true,
+                    since_time: Some(st),
+                    ..LogParams::default()
+                }
+            } else {
+                LogParams {
+                    follow: false,
+                    timestamps: true,
+                    since_seconds: Some(i64::from(since_minutes) * 60),
+                    ..LogParams::default()
+                }
+            };
+            if let Ok(log) = pods_api.logs(&pod_name, &log_params).await {
                 for line in log.lines() {
                     let (timestamp, payload) = split_timestamped_log_line(line);
                     if !search.is_empty() && !payload.to_lowercase().contains(&search) {
                         continue;
+                    }
+                    // Drop entries that exceed the requested end time.
+                    if let Some(ref ef) = end_filter {
+                        if let Some(ref ts) = timestamp {
+                            if let Ok(t) = ts.parse::<DateTime<Utc>>() {
+                                if t > *ef {
+                                    continue;
+                                }
+                            }
+                        }
                     }
                     entries.push(LogEntry {
                         source: format!("pod/{pod_name}"),
@@ -791,6 +820,8 @@ async fn get_pod_status(
         name: query.name,
         search: None,
         since_minutes: None,
+        start_time: None,
+        end_time: None,
         context: None,
     };
 
