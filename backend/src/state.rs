@@ -1,11 +1,12 @@
 use jsonwebtoken::DecodingKey;
 use kube::Client;
+use reqwest::Client as HttpClient;
 use std::{
     collections::HashMap,
     sync::Arc,
     time::Instant,
 };
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::models::{ContextInfo, NamespaceItem, WorkloadItem};
 
@@ -31,7 +32,9 @@ pub(crate) struct CacheEntry<T> {
 pub(crate) struct AuthState {
     pub(crate) client_id: Option<String>,
     pub(crate) required: bool,
+    pub(crate) http_client: HttpClient,
     pub(crate) jwks_cache: RwLock<Option<JwksCache>>,
+    pub(crate) jwks_fetch_lock: Mutex<()>,
 }
 
 pub(crate) struct JwksCache {

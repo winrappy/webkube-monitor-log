@@ -9,6 +9,7 @@ pub(crate) fn build_app(state: AppState) -> Router {
         .route("/workloads", get(handlers::list_workloads))
         .route("/logs", get(handlers::get_logs))
         .route("/env", get(handlers::get_env))
+        .route("/workload-spec", get(handlers::get_workload_spec))
         .route("/pod-status", get(handlers::get_pod_status))
         .route("/context", get(handlers::get_context))
         .with_state(state.clone())

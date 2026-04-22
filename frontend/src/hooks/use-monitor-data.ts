@@ -19,6 +19,7 @@ import {
   type PodStatusItem,
   type TimeMode,
   type WorkloadItem,
+  type WorkloadSpec,
 } from "@/types/monitor";
 import { detectLogLevel } from "@/utils/monitor";
 
@@ -40,6 +41,7 @@ export function useMonitorData() {
 
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [podStatuses, setPodStatuses] = useState<PodStatusItem[]>([]);
+  const [workloadSpec, setWorkloadSpec] = useState<WorkloadSpec | null>(null);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("logs");
   const [timeMode, setTimeMode] = useState<TimeMode>("preset");
@@ -51,6 +53,7 @@ export function useMonitorData() {
   const [loadingLogs, setLoadingLogs] = useState(false);
   const [loadingEnv, setLoadingEnv] = useState(false);
   const [loadingPodStatus, setLoadingPodStatus] = useState(false);
+  const [loadingSpec, setLoadingSpec] = useState(false);
 
   const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null);
   const [selectedContext, setSelectedContext] = useState("");
@@ -285,13 +288,43 @@ export function useMonitorData() {
     }
   };
 
+  const fetchWorkloadSpec = async (workload: WorkloadItem) => {
+    setLoadingSpec(true);
+    setWorkloadSpec(null);
+
+    try {
+      const params = new URLSearchParams({
+        namespace: workload.namespace,
+        kind: workload.kind,
+        name: workload.name,
+      });
+      if (selectedContext) {
+        params.set("context", selectedContext);
+      }
+
+      const response = await fetch(`${apiBase}/api/workload-spec?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error("Failed to load workload spec");
+      }
+
+      const data = (await response.json()) as WorkloadSpec;
+      setWorkloadSpec(data);
+    } catch {
+      setWorkloadSpec(null);
+    } finally {
+      setLoadingSpec(false);
+    }
+  };
+
   useEffect(() => {
     if (selectedWorkload) {
       fetchEnv(selectedWorkload);
       fetchPodStatus(selectedWorkload);
+      fetchWorkloadSpec(selectedWorkload);
     } else {
       setEnvVars([]);
       setPodStatuses([]);
+      setWorkloadSpec(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWorkload, selectedContext]);
@@ -419,6 +452,7 @@ export function useMonitorData() {
     loadingLogs,
     loadingNamespaces,
     loadingPodStatus,
+    loadingSpec,
     loadingWorkloads,
     namespaceSearch,
     namespaceSuggestions,
@@ -432,6 +466,7 @@ export function useMonitorData() {
     sinceMinutes,
     timeMode,
     totalWorkloadPages,
+    workloadSpec,
     setActiveTab,
     setCustomEnd,
     setCustomStart,

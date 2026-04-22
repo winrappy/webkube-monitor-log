@@ -30,6 +30,13 @@ export type PodStatusItem = {
   restarts: number;
 };
 
+export type WorkloadSpec = {
+  kind: string;
+  name: string;
+  namespace: string;
+  spec: Record<string, unknown> | null;
+};
+
 export type ParsedLogLine = {
   entry: LogEntry;
   isJson: boolean;
@@ -45,7 +52,7 @@ export type ContextInfo = {
   contexts?: string[];
 };
 
-export type ActiveTab = "logs" | "env";
+export type ActiveTab = "logs" | "env" | "spec";
 export type TimeMode = "preset" | "custom";
 
 export type SinceOption = {

@@ -64,12 +64,14 @@ export default function Home() {
           loadingEnv={monitor.loadingEnv}
           loadingLogs={monitor.loadingLogs}
           loadingPodStatus={monitor.loadingPodStatus}
+          loadingSpec={monitor.loadingSpec}
           parsedLogs={monitor.parsedLogs}
           podStatuses={monitor.podStatuses}
           search={monitor.search}
           selectedWorkload={monitor.selectedWorkload}
           sinceMinutes={monitor.sinceMinutes}
           timeMode={monitor.timeMode}
+          workloadSpec={monitor.workloadSpec}
           setActiveTab={monitor.setActiveTab}
           setCustomEnd={monitor.setCustomEnd}
           setCustomStart={monitor.setCustomStart}

@@ -62,18 +62,18 @@ async fn verify_google_token(
 }
 
 async fn get_google_keys(auth: &AuthState) -> Result<HashMap<String, DecodingKey>, StatusCode> {
-    let now = Instant::now();
-
-    {
-        let cache = auth.jwks_cache.read().await;
-        if let Some(cached) = cache.as_ref() {
-            if cached.expires_at > now {
-                return Ok(cached.keys.clone());
-            }
-        }
+    if let Some(keys) = get_cached_google_keys(auth, Instant::now()).await {
+        return Ok(keys);
     }
 
-    let response = reqwest::Client::new()
+    let _fetch_guard = auth.jwks_fetch_lock.lock().await;
+
+    if let Some(keys) = get_cached_google_keys(auth, Instant::now()).await {
+        return Ok(keys);
+    }
+
+    let response = auth
+        .http_client
         .get("https://www.googleapis.com/oauth2/v3/certs")
         .send()
         .await
@@ -103,7 +103,7 @@ async fn get_google_keys(auth: &AuthState) -> Result<HashMap<String, DecodingKey
         keys.insert(jwk.kid, decoding);
     }
 
-    let expires_at = now + Duration::from_secs(max_age);
+    let expires_at = Instant::now() + Duration::from_secs(max_age);
     {
         let mut cache = auth.jwks_cache.write().await;
         *cache = Some(JwksCache {
@@ -113,6 +113,20 @@ async fn get_google_keys(auth: &AuthState) -> Result<HashMap<String, DecodingKey
     }
 
     Ok(keys)
+}
+
+async fn get_cached_google_keys(
+    auth: &AuthState,
+    now: Instant,
+) -> Option<HashMap<String, DecodingKey>> {
+    let cache = auth.jwks_cache.read().await;
+    cache.as_ref().and_then(|cached| {
+        if cached.expires_at > now {
+            Some(cached.keys.clone())
+        } else {
+            None
+        }
+    })
 }
 
 #[derive(Deserialize)]

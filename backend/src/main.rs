@@ -3,16 +3,18 @@ mod constants;
 mod handlers;
 mod models;
 mod routes;
+mod services;
 mod state;
 
 use state::{ApiCache, AppState, AuthState};
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tracing::{error, info};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
+        .json()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
@@ -34,7 +36,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         auth: Arc::new(AuthState {
             client_id,
             required,
+            http_client: reqwest::Client::new(),
             jwks_cache: RwLock::new(None),
+            jwks_fetch_lock: Mutex::new(()),
         }),
         cache: Arc::new(RwLock::new(ApiCache::default())),
     };

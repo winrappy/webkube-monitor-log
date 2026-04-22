@@ -56,6 +56,14 @@ pub(crate) struct PodStatusQuery {
 }
 
 #[derive(Deserialize)]
+pub(crate) struct SpecQuery {
+    pub(crate) namespace: String,
+    pub(crate) kind: String,
+    pub(crate) name: String,
+    pub(crate) context: Option<String>,
+}
+
+#[derive(Deserialize)]
 pub(crate) struct ContextQuery {
     pub(crate) context: Option<String>,
 }
@@ -73,6 +81,14 @@ pub(crate) struct PodStatusItem {
     pub(crate) phase: String,
     pub(crate) ready: String,
     pub(crate) restarts: i32,
+}
+
+#[derive(Serialize)]
+pub(crate) struct WorkloadSpecItem {
+    pub(crate) kind: String,
+    pub(crate) name: String,
+    pub(crate) namespace: String,
+    pub(crate) spec: serde_json::Value,
 }
 
 #[derive(Clone, Serialize)]

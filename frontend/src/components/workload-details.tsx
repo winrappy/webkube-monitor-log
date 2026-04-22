@@ -16,6 +16,7 @@ import {
 
 import { EnvTab } from "@/components/env-tab";
 import { LogsTab } from "@/components/logs-tab";
+import { SpecTab } from "@/components/spec-tab";
 
 type WorkloadDetailsProps = {
   activeTab: ActiveTab;
@@ -32,6 +33,8 @@ type WorkloadDetailsProps = {
   podStatuses: PodStatusItem[];
   search: string;
   selectedWorkload: WorkloadItem | null;
+  loadingSpec: boolean;
+  workloadSpec: { kind: string; name: string; namespace: string; spec: Record<string, unknown> | null } | null;
   sinceMinutes: number;
   timeMode: TimeMode;
   setActiveTab: (value: ActiveTab) => void;
@@ -62,6 +65,8 @@ export function WorkloadDetails({
   podStatuses,
   search,
   selectedWorkload,
+  loadingSpec,
+  workloadSpec,
   setActiveTab,
   setCustomEnd,
   setCustomStart,
@@ -224,6 +229,16 @@ export function WorkloadDetails({
         >
           Environment{envVars.length > 0 ? ` (${envVars.length})` : ""}
         </button>
+        <button
+          onClick={() => setActiveTab("spec")}
+          className={`px-4 py-2 text-sm font-medium transition ${
+            activeTab === "spec"
+              ? "border-b-2 border-accent text-foreground"
+              : "text-muted hover:text-foreground"
+          }`}
+        >
+          Spec
+        </button>
       </div>
 
       {error ? (
@@ -249,6 +264,14 @@ export function WorkloadDetails({
           envVars={envVars}
           loadingEnv={loadingEnv}
           selectedWorkload={selectedWorkload}
+        />
+      ) : null}
+
+      {activeTab === "spec" ? (
+        <SpecTab
+          loadingSpec={loadingSpec}
+          selectedWorkload={selectedWorkload}
+          workloadSpec={workloadSpec}
         />
       ) : null}
     </section>
