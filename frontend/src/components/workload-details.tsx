@@ -1,4 +1,3 @@
-import { sinceOptions } from "@/constants/monitor";
 import type {
   ActiveTab,
   EnvVar,
@@ -127,85 +126,7 @@ export function WorkloadDetails({
           </div>
         </div>
 
-        {activeTab === "logs" ? (
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              onClick={() =>
-                setTimeMode((mode) => (mode === "preset" ? "custom" : "preset"))
-              }
-              className={`rounded-full border px-3 py-2 text-xs font-medium transition ${
-                timeMode === "custom"
-                  ? "border-accent bg-chip text-accent"
-                  : "border-line bg-surface text-muted hover:border-accent"
-              }`}
-              title={
-                timeMode === "preset"
-                  ? "Switch to custom date range"
-                  : "Switch to preset time range"
-              }
-            >
-              {timeMode === "preset" ? "Custom range" : "Preset range"}
-            </button>
 
-            {timeMode === "preset" ? (
-              <select
-                className="rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none transition focus:border-accent"
-                value={sinceMinutes}
-                onChange={(event) => setSinceMinutes(Number(event.target.value))}
-              >
-                {sinceOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-muted">From</label>
-                  <input
-                    type="datetime-local"
-                    className="rounded-full border border-line bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent"
-                    value={customStart}
-                    max={customEnd || undefined}
-                    onChange={(event) => setCustomStart(event.target.value)}
-                  />
-                </div>
-                <div className="flex items-center gap-1">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-muted">To</label>
-                  <input
-                    type="datetime-local"
-                    className="rounded-full border border-line bg-surface px-3 py-2 text-sm outline-none transition focus:border-accent"
-                    value={customEnd}
-                    min={customStart || undefined}
-                    onChange={(event) => setCustomEnd(event.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-
-            <input
-              className="w-56 rounded-full border border-line bg-surface px-4 py-2 text-sm outline-none transition focus:border-accent"
-              placeholder="Search logs"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-            <button
-              className="rounded-full border border-line px-4 py-2 text-sm transition hover:border-accent"
-              onClick={fetchLogs}
-              disabled={loadingLogs || !selectedWorkload}
-            >
-              {loadingLogs ? "Loading..." : "Refresh"}
-            </button>
-            <span
-              className="rounded-full border border-sky-400/40 bg-sky-500/10 px-2 py-1 text-[10px] font-semibold leading-none text-sky-200"
-              title="Sorted latest to oldest"
-              aria-label="Sorted latest to oldest"
-            >
-              Latest -&gt; Oldest
-            </span>
-          </div>
-        ) : null}
       </div>
 
       <div className="mt-4 flex gap-1 border-b border-line">
@@ -254,7 +175,17 @@ export function WorkloadDetails({
           loadingLogs={loadingLogs}
           search={search}
           expandedLogRows={expandedLogRows}
+          sinceMinutes={sinceMinutes}
+          timeMode={timeMode}
+          customStart={customStart}
+          customEnd={customEnd}
           setExpandedLogRows={setExpandedLogRows}
+          setSearch={setSearch}
+          setSinceMinutes={setSinceMinutes}
+          setTimeMode={setTimeMode}
+          setCustomStart={setCustomStart}
+          setCustomEnd={setCustomEnd}
+          fetchLogs={fetchLogs}
         />
       ) : null}
 
