@@ -2,30 +2,44 @@
 
 import { WORKLOADS_PER_PAGE } from "@/constants/monitor";
 import { ContextSelector } from "@/components/context-selector";
+import { GlobalSearch } from "@/components/global-search";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkloadDetails } from "@/components/workload-details";
 import { WorkloadExplorer } from "@/components/workload-explorer";
 import { useMonitorData } from "@/hooks/use-monitor-data";
+import { useTheme } from "@/hooks/use-theme";
 
 export default function Home() {
   const monitor = useMonitorData();
+  const { theme, toggle } = useTheme();
 
   return (
     <div className="flex min-h-screen flex-col px-6 py-6 text-foreground">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
+      <header className="flex flex-wrap items-center gap-4">
+        <div className="shrink-0">
           <p className="text-xs uppercase tracking-[0.3em] text-muted opacity-80">
             In-cluster Kubernetes
           </p>
           <h1 className="text-3xl font-semibold tracking-tight">Kubeweb Log Monitor</h1>
         </div>
 
-        <ContextSelector
-          contextInfo={monitor.contextInfo}
-          selectedContext={monitor.selectedContext}
-          setSelectedContext={monitor.setSelectedContext}
-          className="w-full max-w-[420px] rounded-2xl border border-line bg-surface px-4 py-2 sm:ml-auto sm:w-auto"
-          selectClassName="mt-1 w-full bg-transparent text-sm font-semibold text-foreground outline-none sm:w-[360px]"
+        <GlobalSearch
+          namespaces={monitor.namespaces}
+          workloads={monitor.workloads}
+          setSelectedNamespace={monitor.setSelectedNamespace}
+          setSelectedWorkload={monitor.setSelectedWorkload}
         />
+
+        <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
+          <ThemeToggle theme={theme} onToggle={toggle} />
+          <ContextSelector
+            contextInfo={monitor.contextInfo}
+            selectedContext={monitor.selectedContext}
+            setSelectedContext={monitor.setSelectedContext}
+            className="w-full max-w-[420px] rounded-2xl border border-line bg-surface px-4 py-2 sm:w-auto"
+            selectClassName="mt-1 w-full bg-transparent text-sm font-semibold text-foreground outline-none sm:w-[360px]"
+          />
+        </div>
       </header>
 
       <main

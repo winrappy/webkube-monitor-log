@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* Make dark: variant follow [data-theme="dark"] attribute instead of prefers-color-scheme */
+@variant dark (&:where([data-theme="dark"],[data-theme="dark"] *));
+
 :root {
   --background: #0d0f12;
   --foreground: #eef2f2;
@@ -12,6 +15,20 @@
   --chip: #1b2a2a;
   --chip-border: #2f3f3f;
   --shadow: rgba(10, 12, 16, 0.4);
+}
+
+[data-theme="light"] {
+  --background: #f0f4f8;
+  --foreground: #1a2332;
+  --surface: #ffffff;
+  --surface-strong: #e5ecf4;
+  --accent: #0d9e7e;
+  --accent-2: #c94035;
+  --muted: #5a7a96;
+  --line: #ccd6e0;
+  --chip: #d8f5ed;
+  --chip-border: #a8ddd0;
+  --shadow: rgba(10, 20, 40, 0.1);
 }
 
 @theme inline {
@@ -37,6 +54,20 @@ body {
   font-family: var(--font-space-grotesk), system-ui, sans-serif;
 }
 
+[data-theme="light"] body {
+  background: radial-gradient(
+      1200px 600px at 10% -10%,
+      rgba(13, 158, 126, 0.07),
+      transparent 55%
+    ),
+    radial-gradient(
+      900px 500px at 100% 0%,
+      rgba(201, 64, 53, 0.06),
+      transparent 50%
+    ),
+    var(--background);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -48,6 +79,11 @@ body {
   backdrop-filter: blur(16px);
 }
 
+[data-theme="light"] .glass-panel {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(240, 247, 255, 0.96));
+  border: 1px solid rgba(180, 205, 225, 0.7);
+}
+
 .grid-lines {
   background-image: linear-gradient(
       120deg,
@@ -56,6 +92,15 @@ body {
     ),
     linear-gradient(30deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
   background-size: 46px 46px;
+}
+
+[data-theme="light"] .grid-lines {
+  background-image: linear-gradient(
+      120deg,
+      rgba(0, 0, 0, 0.025) 1px,
+      transparent 1px
+    ),
+    linear-gradient(30deg, rgba(0, 0, 0, 0.025) 1px, transparent 1px);
 }
 
 .text-muted {
@@ -80,6 +125,10 @@ body {
 
 .bg-surface-strong {
   background-color: rgba(27, 36, 49, 0.86);
+}
+
+[data-theme="light"] .bg-surface-strong {
+  background-color: rgba(229, 236, 244, 0.92);
 }
 
 .bg-background {
