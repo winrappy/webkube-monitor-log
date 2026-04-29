@@ -9,6 +9,7 @@ use kube::{
 };
 use std::{
     collections::BTreeMap,
+    path::Path,
     time::{Duration, Instant},
 };
 use tokio::task::JoinSet;
@@ -36,11 +37,31 @@ fn context_cache_key(context: Option<&str>) -> String {
     context.unwrap_or("__default").to_string()
 }
 
+// Kubeconfigs generated on macOS (Homebrew, installer) embed absolute host paths like
+// /opt/homebrew/share/google-cloud-sdk/bin/gke-gcloud-auth-plugin. Those paths don't
+// exist inside the Linux container, causing ENOENT when kube tries to exec the plugin.
+// Stripping to just the binary name lets the container resolve it via PATH.
+fn normalize_exec_commands(mut kubeconfig: Kubeconfig) -> Kubeconfig {
+    for named_auth in &mut kubeconfig.auth_infos {
+        if let Some(ref mut auth) = named_auth.auth_info {
+            if let Some(ref mut exec) = auth.exec {
+                if let Some(ref cmd) = exec.command.clone() {
+                    if let Some(name) = Path::new(cmd).file_name().and_then(|n| n.to_str()) {
+                        exec.command = Some(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+    kubeconfig
+}
+
 async fn build_client_for_context(context: Option<&str>) -> Result<Client, StatusCode> {
     let kubeconfig = Kubeconfig::read_from(kubeconfig_path()).map_err(|e| {
         error!(error = %e, path = %kubeconfig_path(), "Failed to read kubeconfig");
         StatusCode::SERVICE_UNAVAILABLE
     })?;
+    let kubeconfig = normalize_exec_commands(kubeconfig);
     let options = KubeConfigOptions {
         context: context.map(str::to_string),
         ..KubeConfigOptions::default()
