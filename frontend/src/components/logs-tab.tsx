@@ -87,6 +87,8 @@ export function LogsTab({
   const [selectedTags, setSelectedTags] = useState<Set<string>>(
     () => new Set(["__all__"])
   );
+  const [fieldKey, setFieldKey] = useState("");
+  const [fieldValue, setFieldValue] = useState("");
 
   // Reset to "all" when available tags change (new workload/log set loaded)
   const availableTagsKey = useMemo(() => allTags.join(","), [allTags]);
@@ -113,23 +115,39 @@ export function LogsTab({
     });
   };
 
-  const filteredLogs = useMemo(() => {
-    if (selectedTags.has("__all__")) return parsedLogs;
-    return parsedLogs.filter((item) => {
-      const itemTags = new Set<string>();
-      if (item.isJson) {
-        itemTags.add("json");
-      }
-      itemTags.add(item.level?.toLowerCase() ?? "other");
+  // TODO: implement this — see the contribution request below
+  function matchesFieldFilter(
+    _json: Record<string, unknown>,
+    _key: string,
+    _value: string
+  ): boolean {
+    return false; // placeholder: always no-match until implemented
+  }
 
-      for (const tag of selectedTags) {
-        if (itemTags.has(tag)) {
-          return true;
-        }
+  const filteredLogs = useMemo(() => {
+    const keyTrim = fieldKey.trim();
+    const valTrim = fieldValue.trim();
+    const applyFieldFilter = keyTrim !== "" && valTrim !== "";
+
+    return parsedLogs.filter((item) => {
+      // Tag filter
+      if (!selectedTags.has("__all__")) {
+        const itemTags = new Set<string>();
+        if (item.isJson) itemTags.add("json");
+        itemTags.add(item.level?.toLowerCase() ?? "other");
+        const tagMatch = [...selectedTags].some((t) => itemTags.has(t));
+        if (!tagMatch) return false;
       }
-      return false;
+
+      // JSON field filter — only applies when both inputs are filled
+      if (applyFieldFilter) {
+        if (!item.parsedJson) return false;
+        if (!matchesFieldFilter(item.parsedJson, keyTrim, valTrim)) return false;
+      }
+
+      return true;
     });
-  }, [parsedLogs, selectedTags]);
+  }, [parsedLogs, selectedTags, fieldKey, fieldValue]);
 
   const showToolbar = true;
 
@@ -187,8 +205,33 @@ export function LogsTab({
               )}
             </div>
 
-            {/* Right: time controls + search + refresh */}
+            {/* Right: field filter + time controls + search + refresh */}
             <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              <input
+                className="w-32 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-violet-400"
+                placeholder="Field (e.g. X-Request-ID)"
+                value={fieldKey}
+                onChange={(e) => setFieldKey(e.target.value)}
+              />
+              <span className="text-[10px] text-muted">:</span>
+              <input
+                className="w-40 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-violet-400"
+                placeholder="Value"
+                value={fieldValue}
+                onChange={(e) => setFieldValue(e.target.value)}
+              />
+              {(fieldKey || fieldValue) && (
+                <button
+                  type="button"
+                  onClick={() => { setFieldKey(""); setFieldValue(""); }}
+                  className="rounded-full border border-line px-2 py-1.5 text-xs text-muted transition hover:border-accent"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            <span className="text-[10px] text-muted">|</span>
             <button
               type="button"
               onClick={() => setTimeMode((mode) => (mode === "preset" ? "custom" : "preset"))}

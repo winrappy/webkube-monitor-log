@@ -16,6 +16,7 @@ RUN apt-get update \
 		&& apt-get update \
 		&& apt-get install -y --no-install-recommends google-cloud-cli google-cloud-cli-gke-gcloud-auth-plugin \
 		&& rm -rf /var/lib/apt/lists/*
+ENV PATH="/usr/lib/google-cloud-sdk/bin:${PATH}"
 COPY --from=builder /app/target/release/kubeweb-backend /usr/local/bin/kubeweb-backend
 EXPOSE 8081
 CMD ["/usr/local/bin/kubeweb-backend"]
