@@ -161,3 +161,77 @@ body {
     transform: translateY(0);
   }
 }
+
+/* ── Design system: IDE layout variables ─────────────────────────── */
+:root {
+  --ds-bg-1: #0c1014;
+  --ds-bg-2: #11161c;
+  --ds-bg-3: #161d25;
+  --ds-line-2: #28333f;
+  --ds-text-2: #6b7785;
+  --ds-text-3: #4a5462;
+  --ds-mint: var(--accent);
+  --ds-mint-d: #34d399;
+  --ds-mint-bg: rgba(70, 240, 194, 0.10);
+  --ds-amber: #fbbf24;
+  --ds-amber-bg: rgba(251, 191, 36, 0.12);
+  --ds-rose: #fb7185;
+  --ds-rose-bg: rgba(251, 113, 133, 0.12);
+  --ds-sky: #60a5fa;
+  --ds-sky-bg: rgba(96, 165, 250, 0.12);
+  --ds-violet: #a78bfa;
+  --ds-violet-bg: rgba(167, 139, 250, 0.14);
+}
+
+[data-theme="light"] {
+  --ds-bg-1: #ffffff;
+  --ds-bg-2: #f8fafc;
+  --ds-bg-3: #eff4f8;
+  --ds-line-2: #b8cad8;
+  --ds-text-2: #6b8099;
+  --ds-text-3: #8fa5ba;
+  --ds-mint: var(--accent);
+  --ds-mint-d: #0c8870;
+  --ds-mint-bg: rgba(13, 158, 126, 0.10);
+  --ds-amber: #d97706;
+  --ds-amber-bg: rgba(217, 119, 6, 0.12);
+  --ds-rose: #e11d48;
+  --ds-rose-bg: rgba(225, 29, 72, 0.10);
+  --ds-sky: #2563eb;
+  --ds-sky-bg: rgba(37, 99, 235, 0.10);
+  --ds-violet: #7c3aed;
+  --ds-violet-bg: rgba(124, 58, 237, 0.12);
+}
+
+/* 3-pane IDE layout */
+.ide-app {
+  display: grid;
+  grid-template-rows: 44px 1fr;
+  grid-template-columns: 280px 1fr 320px;
+  grid-template-areas: "topbar topbar topbar" "sidebar main inspector";
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: var(--background);
+}
+
+html, body { height: 100%; overflow: hidden; }
+
+/* Pulse animation for live indicator */
+@keyframes ds-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(70, 240, 194, 0.6); }
+  100% { box-shadow: 0 0 0 6px rgba(70, 240, 194, 0); }
+}
+.ds-live-pulse { animation: ds-pulse 1.6s ease-out infinite; }
+
+/* Tail row hover reveal */
+.ds-tail-row .ds-row-actions { opacity: 0; }
+.ds-tail-row:hover .ds-row-actions { opacity: 1; }
+.ds-tail-row:hover { background: var(--ds-bg-2); }
+.ds-tail-row.ds-selected { background: var(--ds-mint-bg); }
+
+/* Custom scrollbars for IDE panes */
+.ide-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+.ide-scroll::-webkit-scrollbar-track { background: transparent; }
+.ide-scroll::-webkit-scrollbar-thumb { background: var(--ds-bg-3); border-radius: 4px; border: 2px solid var(--ds-bg-1); }
+.ide-scroll::-webkit-scrollbar-thumb:hover { background: var(--ds-line-2); }

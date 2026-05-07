@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useState } from "react";
 import { apiBase } from "@/constants/monitor";
 import type { ServiceMap } from "@/types/monitor";
@@ -10,10 +12,7 @@ export function useServiceMap(namespace: string, context: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!namespace) {
-      setData(null);
-      return;
-    }
+    if (!namespace) return;
 
     let cancelled = false;
     setLoading(true);
@@ -43,5 +42,9 @@ export function useServiceMap(namespace: string, context: string) {
     };
   }, [namespace, context]);
 
-  return { data, loading, error };
+  return {
+    data: namespace ? data : null,
+    loading: namespace ? loading : false,
+    error: namespace ? error : null,
+  };
 }

@@ -1,92 +1,38 @@
-import { useEffect, useMemo, useState } from "react";
-import type { MouseEvent, ReactNode } from "react";
+"use client";
 
-import {
-  LOG_PREVIEW_CHARS,
-  PLAIN_LOG_PREVIEW_CHARS,
-  sinceOptions,
-} from "@/constants/monitor";
+import { Fragment, useMemo, useState } from "react";
+import type { MouseEvent } from "react";
+
+import { sinceOptions } from "@/constants/monitor";
 import type { ParsedLogLine, TimeMode, WorkloadItem } from "@/types/monitor";
 import {
   escapeRegExp,
-  levelBadgeClass,
   parseLogSearchQuery,
   type FieldSearchToken,
 } from "@/utils/monitor";
 
-type LogsTabProps = {
-  parsedLogs: ParsedLogLine[];
-  selectedWorkload: WorkloadItem | null;
-  loadingLogs: boolean;
-  search: string;
-  expandedLogRows: Record<string, boolean>;
-  sinceMinutes: number;
-  timeMode: TimeMode;
-  customStart: string;
-  customEnd: string;
-  setExpandedLogRows: (
-    updater: (previous: Record<string, boolean>) => Record<string, boolean>
-  ) => void;
-  setSearch: (value: string) => void;
-  setSinceMinutes: (value: number) => void;
-  setTimeMode: (updater: (previous: TimeMode) => TimeMode) => void;
-  setCustomStart: (value: string) => void;
-  setCustomEnd: (value: string) => void;
-  fetchLogs: () => Promise<void>;
-};
-
-function renderHighlightedText(text: string, searchTerm: string): ReactNode {
-  const term = searchTerm.trim();
-  if (!term) {
-    return text;
-  }
-
-  const regex = new RegExp(`(${escapeRegExp(term)})`, "ig");
-  const parts = text.split(regex);
-
-  return parts.map((part, index) => {
-    if (part.toLowerCase() === term.toLowerCase()) {
-      return (
-        <mark
-          key={`hl-${index}`}
-          className="rounded bg-amber-300/30 px-0.5 text-amber-100"
-        >
-          {part}
-        </mark>
-      );
-    }
-
-    return <span key={`txt-${index}`}>{part}</span>;
-  });
-}
+/* ── Field-filter helpers (unchanged from original) ─────────────── */
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function directFieldValue(
-  json: Record<string, unknown>,
-  key: string
-): unknown {
-  if (Object.prototype.hasOwnProperty.call(json, key)) {
-    return json[key];
-  }
-
+function directFieldValue(json: Record<string, unknown>, key: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(json, key)) return json[key];
   const wanted = key.toLowerCase();
-  const matchedKey = Object.keys(json).find((item) => item.toLowerCase() === wanted);
-  return matchedKey ? json[matchedKey] : undefined;
+  const matched = Object.keys(json).find((k) => k.toLowerCase() === wanted);
+  return matched ? json[matched] : undefined;
 }
 
 function readFieldValue(json: Record<string, unknown>, key: string): unknown {
   const direct = directFieldValue(json, key);
   if (direct !== undefined) return direct;
-
   const parts = key.split(".").filter(Boolean);
   let current: unknown = json;
   for (const part of parts) {
     if (Array.isArray(current)) {
-      const index = Number(part);
-      current = Number.isInteger(index) ? current[index] : undefined;
+      const idx = Number(part);
+      current = Number.isInteger(idx) ? current[idx] : undefined;
       continue;
     }
     if (!isRecord(current)) return undefined;
@@ -98,7 +44,8 @@ function readFieldValue(json: Record<string, unknown>, key: string): unknown {
 function fieldValueText(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   return JSON.stringify(value);
 }
 
@@ -107,8 +54,9 @@ function matchesFieldFilter(
   key: string,
   value: string
 ): boolean {
-  const actual = fieldValueText(readFieldValue(json, key)).toLowerCase();
-  return actual.includes(value.toLowerCase());
+  return fieldValueText(readFieldValue(json, key))
+    .toLowerCase()
+    .includes(value.toLowerCase());
 }
 
 function matchesFieldFilters(
@@ -117,65 +65,209 @@ function matchesFieldFilters(
 ): boolean {
   if (filters.length === 0) return true;
   if (!json) return false;
-  return filters.every((filter) =>
-    matchesFieldFilter(json, filter.key.trim(), filter.value.trim())
+  return filters.every((f) =>
+    matchesFieldFilter(json, f.key.trim(), f.value.trim())
   );
 }
 
-function CopyButton({
+/* ── Copy button ─────────────────────────────────────────────────── */
+
+function CopyBtn({
   value,
-  label,
-  className = "",
+  label = "copy",
 }: {
   value: string;
-  label: string;
-  className?: string;
+  label?: string;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async (event: MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
+  const [done, setDone] = useState(false);
+  const copy = async (e: MouseEvent) => {
+    e.stopPropagation();
     await navigator.clipboard.writeText(value);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
+    setDone(true);
+    setTimeout(() => setDone(false), 1200);
   };
-
   return (
     <button
       type="button"
       onClick={copy}
-      className={`rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold text-muted transition hover:border-accent hover:text-foreground ${className}`}
+      style={{
+        background: "transparent",
+        border: "1px solid var(--line)",
+        color: "var(--ds-text-2)",
+        fontSize: 10,
+        padding: "2px 6px",
+        borderRadius: 4,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        whiteSpace: "nowrap",
+        transition: "border-color 0.12s, color 0.12s",
+      }}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLElement).style.borderColor =
+          "var(--ds-line-2)";
+        (e.currentTarget as HTMLElement).style.color = "var(--foreground)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLElement).style.borderColor = "var(--line)";
+        (e.currentTarget as HTMLElement).style.color = "var(--ds-text-2)";
+      }}
     >
-      {copied ? "Copied" : label}
+      {done ? "✓" : label}
     </button>
   );
 }
 
+/* ── Level chip ──────────────────────────────────────────────────── */
+
+const LEVEL_DS: Record<string, React.CSSProperties> = {
+  error: {
+    background: "var(--ds-rose-bg)",
+    color: "var(--ds-rose)",
+    border: "1px solid rgba(251,113,133,0.3)",
+  },
+  err: {
+    background: "var(--ds-rose-bg)",
+    color: "var(--ds-rose)",
+    border: "1px solid rgba(251,113,133,0.3)",
+  },
+  fatal: {
+    background: "var(--ds-rose-bg)",
+    color: "var(--ds-rose)",
+    border: "1px solid rgba(251,113,133,0.3)",
+  },
+  warn: {
+    background: "var(--ds-amber-bg)",
+    color: "var(--ds-amber)",
+    border: "1px solid rgba(251,191,36,0.3)",
+  },
+  warning: {
+    background: "var(--ds-amber-bg)",
+    color: "var(--ds-amber)",
+    border: "1px solid rgba(251,191,36,0.3)",
+  },
+  info: {
+    background: "var(--ds-sky-bg)",
+    color: "var(--ds-sky)",
+    border: "1px solid rgba(96,165,250,0.3)",
+  },
+  debug: {
+    background: "var(--ds-bg-3)",
+    color: "var(--ds-text-2)",
+    border: "1px solid var(--ds-line-2)",
+  },
+};
+
+function levelChipStyle(level: string | null): React.CSSProperties {
+  if (!level) return {};
+  return (
+    LEVEL_DS[level.toLowerCase()] ?? {
+      background: "var(--ds-bg-3)",
+      color: "var(--ds-text-2)",
+      border: "1px solid var(--ds-line-2)",
+    }
+  );
+}
+
+function LevelChip({ level }: { level: string | null }) {
+  if (!level) return null;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "1px 5px",
+        borderRadius: 3,
+        fontFamily: "var(--font-mono)",
+        fontSize: 9.5,
+        fontWeight: 500,
+        letterSpacing: "0.04em",
+        whiteSpace: "nowrap",
+        ...levelChipStyle(level),
+      }}
+    >
+      {level.toUpperCase()}
+    </span>
+  );
+}
+
+/* ── Text highlight ──────────────────────────────────────────────── */
+
+function highlight(text: string, term: string) {
+  const t = term.trim();
+  if (!t) return text;
+  const regex = new RegExp(`(${escapeRegExp(t)})`, "ig");
+  const parts = text.split(regex);
+  return parts.map((part, i) =>
+    part.toLowerCase() === t.toLowerCase() ? (
+      <mark
+        key={i}
+        style={{
+          background: "rgba(251,191,36,0.25)",
+          color: "var(--ds-amber)",
+          borderRadius: 2,
+          padding: "0 1px",
+        }}
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  );
+}
+
+/* ── Props ───────────────────────────────────────────────────────── */
+
+type LogsTabProps = {
+  parsedLogs: ParsedLogLine[];
+  selectedWorkload: WorkloadItem | null;
+  loadingLogs: boolean;
+  search: string;
+  expandedLogRows: Record<string, boolean>;
+  sinceMinutes: number;
+  timeMode: TimeMode;
+  customStart: string;
+  customEnd: string;
+  selectedLogIndex: number | null;
+  setExpandedLogRows: (
+    updater: (previous: Record<string, boolean>) => Record<string, boolean>
+  ) => void;
+  setSearch: (value: string) => void;
+  setSinceMinutes: (value: number) => void;
+  setTimeMode: (updater: (previous: TimeMode) => TimeMode) => void;
+  setCustomStart: (value: string) => void;
+  setCustomEnd: (value: string) => void;
+  setSelectedLogIndex: (index: number | null) => void;
+  fetchLogs: () => Promise<void>;
+};
+
+/* ── Main component ──────────────────────────────────────────────── */
+
 export function LogsTab({
+  customEnd,
+  customStart,
   expandedLogRows,
+  fetchLogs,
   loadingLogs,
   parsedLogs,
   search,
+  selectedLogIndex,
   selectedWorkload,
-  sinceMinutes,
-  timeMode,
-  customStart,
-  customEnd,
+  setCustomEnd,
+  setCustomStart,
   setExpandedLogRows,
   setSearch,
   setSinceMinutes,
+  setSelectedLogIndex,
   setTimeMode,
-  setCustomStart,
-  setCustomEnd,
-  fetchLogs,
+  sinceMinutes,
+  timeMode,
 }: LogsTabProps) {
+  /* ── tag / field filtering (carried over) ─────────────────── */
   const allTags = useMemo(() => {
     const tags = new Set<string>();
     for (const item of parsedLogs) {
-      if (item.isJson) {
-        tags.add("json");
-      }
+      if (item.isJson) tags.add("json");
       tags.add(item.level?.toLowerCase() ?? "other");
     }
     return [...tags].sort();
@@ -186,22 +278,29 @@ export function LogsTab({
   );
   const [fieldKey, setFieldKey] = useState("");
   const [fieldValue, setFieldValue] = useState("");
+  const [isLive] = useState(true);
+
   const parsedSearch = useMemo(() => parseLogSearchQuery(search), [search]);
+
   const fieldFilters = useMemo(() => {
     const filters = [...parsedSearch.fields];
-    const keyTrim = fieldKey.trim();
-    const valueTrim = fieldValue.trim();
-    if (keyTrim && valueTrim) {
-      filters.push({ key: keyTrim, value: valueTrim });
-    }
+    const k = fieldKey.trim();
+    const v = fieldValue.trim();
+    if (k && v) filters.push({ key: k, value: v });
     return filters;
   }, [fieldKey, fieldValue, parsedSearch.fields]);
 
-  // Reset to "all" when available tags change (new workload/log set loaded)
-  const availableTagsKey = useMemo(() => allTags.join(","), [allTags]);
-  useEffect(() => {
-    setSelectedTags(new Set(["__all__"]));
-  }, [availableTagsKey]);
+  const activeSelectedTags = useMemo(() => {
+    if (selectedTags.has("__all__")) return selectedTags;
+
+    const available = new Set(allTags);
+    const selectedAvailableTags = [...selectedTags].filter((tag) =>
+      available.has(tag)
+    );
+    return selectedAvailableTags.length
+      ? new Set(selectedAvailableTags)
+      : new Set(["__all__"]);
+  }, [allTags, selectedTags]);
 
   const toggleTag = (tag: string) => {
     if (tag === "__all__") {
@@ -224,341 +323,525 @@ export function LogsTab({
 
   const filteredLogs = useMemo(() => {
     return parsedLogs.filter((item) => {
-      // Tag filter
-      if (!selectedTags.has("__all__")) {
+      if (!activeSelectedTags.has("__all__")) {
         const itemTags = new Set<string>();
         if (item.isJson) itemTags.add("json");
         itemTags.add(item.level?.toLowerCase() ?? "other");
-        const tagMatch = [...selectedTags].some((t) => itemTags.has(t));
-        if (!tagMatch) return false;
+        if (![...activeSelectedTags].some((t) => itemTags.has(t))) return false;
       }
-
       if (!matchesFieldFilters(item.parsedJson, fieldFilters)) return false;
-
       return true;
     });
-  }, [parsedLogs, selectedTags, fieldFilters]);
+  }, [parsedLogs, activeSelectedTags, fieldFilters]);
 
   const jsonLogCount = useMemo(
-    () => parsedLogs.filter((item) => item.parsedJson).length,
+    () => parsedLogs.filter((l) => l.parsedJson).length,
     [parsedLogs]
   );
 
-  const showToolbar = true;
-
   return (
-    <div className="mt-4 flex min-h-0 grow-[0.8] flex-col overflow-hidden rounded-2xl border border-line bg-surface-strong font-mono text-[10px]">
-      {showToolbar && (
-        <div className="flex flex-col gap-2 border-b border-line px-4 py-2">
-          {/* Row 1: Latest→Oldest + level filter (left) | time controls + search + refresh (right) */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* Left: sort badge + level filter */}
-            <div className="flex flex-wrap items-center gap-2">
-              <span
-                className="shrink-0 rounded-full border border-sky-400/40 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold leading-none text-sky-200"
-                title="Sorted latest to oldest"
-              >
-                Latest → Oldest
-              </span>
-              {parsedLogs.length > 0 && (
-                <>
-                  <span className="text-[10px] text-muted">|</span>
-                  <button
-                    type="button"
-                    onClick={() => toggleTag("__all__")}
-                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition ${
-                      selectedTags.has("__all__")
-                        ? "border-accent bg-accent/10 text-accent"
-                        : "border-line text-muted hover:border-accent"
-                    }`}
-                  >
-                    All
-                  </button>
-                  {allTags.map((tag) => {
-                    const label = tag === "json" ? "JSON" : tag === "other" ? "Other" : tag.toUpperCase();
-                    const active = !selectedTags.has("__all__") && selectedTags.has(tag);
-                    const activeClass =
-                      tag === "json"
-                        ? "border-accent/40 bg-accent/10 text-accent"
-                        : tag !== "other"
-                          ? levelBadgeClass(tag)
-                          : "border-line bg-surface text-foreground";
-                    return (
-                      <button
-                        key={tag}
-                        type="button"
-                        onClick={() => toggleTag(tag)}
-                        className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold transition ${
-                          active ? activeClass : "border-line text-muted hover:border-accent"
-                        }`}
-                      >
-                        {label}
-                      </button>
-                    );
-                  })}
-                </>
-              )}
-            </div>
-
-            {/* Right: field filter + time controls + search + refresh */}
-            <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1">
-              <input
-                className="w-36 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-accent"
-                placeholder="Field"
-                value={fieldKey}
-                onChange={(e) => setFieldKey(e.target.value)}
-              />
-              <span className="text-[10px] text-muted">:</span>
-              <input
-                className="w-40 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-accent"
-                placeholder="Value"
-                value={fieldValue}
-                onChange={(e) => setFieldValue(e.target.value)}
-              />
-              {(fieldKey || fieldValue) && (
-                <button
-                  type="button"
-                  onClick={() => { setFieldKey(""); setFieldValue(""); }}
-                  className="rounded-full border border-line px-2 py-1.5 text-xs text-muted transition hover:border-accent"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            <span className="text-[10px] text-muted">|</span>
-            <button
-              type="button"
-              onClick={() => setTimeMode((mode) => (mode === "preset" ? "custom" : "preset"))}
-              className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
-                timeMode === "custom"
-                  ? "border-accent bg-chip text-accent"
-                  : "border-line bg-surface text-muted hover:border-accent"
-              }`}
-            >
-              {timeMode === "preset" ? "Custom range" : "Preset range"}
-            </button>
-
-            {timeMode === "preset" ? (
-              <select
-                className="rounded-full border border-line bg-surface px-4 py-1.5 text-xs outline-none transition focus:border-accent"
-                value={sinceMinutes}
-                onChange={(event) => setSinceMinutes(Number(event.target.value))}
-              >
-                {sinceOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-muted">From</label>
-                  <input
-                    type="datetime-local"
-                    className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition focus:border-accent"
-                    value={customStart}
-                    max={customEnd || undefined}
-                    onChange={(event) => setCustomStart(event.target.value)}
-                  />
-                </div>
-                <div className="flex items-center gap-1">
-                  <label className="text-[10px] uppercase tracking-[0.2em] text-muted">To</label>
-                  <input
-                    type="datetime-local"
-                    className="rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition focus:border-accent"
-                    value={customEnd}
-                    min={customStart || undefined}
-                    onChange={(event) => setCustomEnd(event.target.value)}
-                  />
-                </div>
-              </div>
-            )}
-
-            <input
-              className="w-56 rounded-full border border-line bg-surface px-4 py-1.5 text-xs outline-none transition focus:border-accent"
-              placeholder="Search text or field:value"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+    <div
+      style={{
+        flex: 1,
+        minHeight: 0,
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        fontFamily: "var(--font-mono)",
+      }}
+    >
+      {/* Controls bar */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "7px 14px",
+          borderBottom: "1px solid var(--line)",
+          background: "var(--ds-bg-1)",
+          flexWrap: "wrap",
+          flexShrink: 0,
+        }}
+      >
+        {/* Live indicator */}
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            height: 24,
+            padding: "0 8px",
+            borderRadius: 5,
+            border: isLive
+              ? "1px solid rgba(70,240,194,0.4)"
+              : "1px solid var(--line)",
+            background: isLive ? "var(--ds-mint-bg)" : "var(--ds-bg-2)",
+            color: isLive ? "var(--ds-mint)" : "var(--muted)",
+            fontSize: 11,
+          }}
+        >
+          {isLive && (
+            <span
+              className="ds-live-pulse"
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--ds-mint)",
+                display: "inline-block",
+              }}
             />
-            <button
-              type="button"
-              className="rounded-full border border-line px-4 py-1.5 text-xs transition hover:border-accent disabled:opacity-50"
-              onClick={fetchLogs}
-              disabled={loadingLogs || !selectedWorkload}
+          )}
+          {loadingLogs ? "Loading…" : isLive ? "Live" : "Paused"}
+        </div>
+
+        {/* Time range */}
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 6 }}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              color: "var(--ds-text-3)",
+              textTransform: "uppercase",
+              letterSpacing: "0.07em",
+            }}
+          >
+            Range
+          </span>
+          {timeMode === "preset" ? (
+            <select
+              style={controlSelectStyle}
+              value={sinceMinutes}
+              onChange={(e) => setSinceMinutes(Number(e.target.value))}
             >
-              {loadingLogs ? "Loading..." : "Refresh"}
-            </button>
-            </div>
-          </div>
-          {(fieldFilters.length > 0 || parsedSearch.text || parsedLogs.length > 0) && (
-            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2 text-[10px]">
-              <span className="text-muted">
-                Showing {filteredLogs.length}/{parsedLogs.length} logs
-              </span>
-              <span className="text-muted">|</span>
-              <span className="text-muted">{jsonLogCount} JSON logs searchable by field</span>
-              {parsedSearch.text && (
-                <span className="rounded-full border border-sky-400/40 bg-sky-500/10 px-2 py-0.5 font-semibold text-sky-200">
-                  text: {parsedSearch.text}
-                </span>
-              )}
-              {fieldFilters.map((filter, index) => (
-                <span
-                  key={`${filter.key}-${filter.value}-${index}`}
-                  className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 font-semibold text-accent"
-                >
-                  {filter.key}:{filter.value}
-                </span>
+              {sinceOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
               ))}
+            </select>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <input
+                type="datetime-local"
+                style={{ ...controlSelectStyle, padding: "0 6px" }}
+                value={customStart}
+                max={customEnd || undefined}
+                onChange={(e) => setCustomStart(e.target.value)}
+              />
+              <span style={{ color: "var(--ds-text-3)", fontSize: 11 }}>→</span>
+              <input
+                type="datetime-local"
+                style={{ ...controlSelectStyle, padding: "0 6px" }}
+                value={customEnd}
+                min={customStart || undefined}
+                onChange={(e) => setCustomEnd(e.target.value)}
+              />
             </div>
           )}
+          <button
+            type="button"
+            onClick={() =>
+              setTimeMode((m) => (m === "preset" ? "custom" : "preset"))
+            }
+            style={controlBtnStyle}
+          >
+            {timeMode === "preset" ? "Custom" : "Preset"}
+          </button>
+        </div>
+
+        {/* Field filter */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <input
+            style={{ ...controlSelectStyle, width: 100 }}
+            placeholder="field"
+            value={fieldKey}
+            onChange={(e) => setFieldKey(e.target.value)}
+          />
+          <span style={{ color: "var(--ds-text-3)", fontSize: 11 }}>:</span>
+          <input
+            style={{ ...controlSelectStyle, width: 120 }}
+            placeholder="value"
+            value={fieldValue}
+            onChange={(e) => setFieldValue(e.target.value)}
+          />
+          {(fieldKey || fieldValue) && (
+            <button
+              type="button"
+              onClick={() => {
+                setFieldKey("");
+                setFieldValue("");
+              }}
+              style={controlBtnStyle}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {/* Search */}
+        <input
+          style={{ ...controlSelectStyle, width: 220, flex: 1, minWidth: 140 }}
+          placeholder="Search text or field:value"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
+        {/* Tag pills */}
+        {parsedLogs.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <TagPill
+              active={activeSelectedTags.has("__all__")}
+              onClick={() => toggleTag("__all__")}
+            >
+              All
+            </TagPill>
+            {allTags.map((tag) => (
+              <TagPill
+                key={tag}
+                active={
+                  !activeSelectedTags.has("__all__") &&
+                  activeSelectedTags.has(tag)
+                }
+                onClick={() => toggleTag(tag)}
+              >
+                {tag === "json" ? "JSON" : tag.toUpperCase()}
+              </TagPill>
+            ))}
+          </div>
+        )}
+
+        {/* Refresh */}
+        <button
+          type="button"
+          onClick={fetchLogs}
+          disabled={loadingLogs || !selectedWorkload}
+          style={{
+            ...controlBtnStyle,
+            opacity: loadingLogs || !selectedWorkload ? 0.5 : 1,
+          }}
+        >
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* Count row */}
+      {parsedLogs.length > 0 && (
+        <div
+          style={{
+            padding: "4px 14px",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10.5,
+            color: "var(--ds-text-3)",
+            borderBottom: "1px solid var(--ds-bg-2)",
+            flexShrink: 0,
+            background: "var(--background)",
+          }}
+        >
+          Showing {filteredLogs.length}/{parsedLogs.length} entries · {jsonLogCount} JSON searchable
+          {parsedSearch.text && (
+            <span
+              style={{
+                marginLeft: 8,
+                background: "var(--ds-sky-bg)",
+                color: "var(--ds-sky)",
+                padding: "0 6px",
+                borderRadius: 3,
+                border: "1px solid rgba(96,165,250,0.3)",
+              }}
+            >
+              text: {parsedSearch.text}
+            </span>
+          )}
+          {fieldFilters.map((f, i) => (
+            <span
+              key={i}
+              style={{
+                marginLeft: 4,
+                background: "var(--ds-mint-bg)",
+                color: "var(--ds-mint)",
+                padding: "0 6px",
+                borderRadius: 3,
+                border: "1px solid rgba(70,240,194,0.3)",
+              }}
+            >
+              {f.key}:{f.value}
+            </span>
+          ))}
         </div>
       )}
-      <div className="overflow-auto p-4">
-      {filteredLogs.length === 0 ? (
-        <p className="text-muted">
-          {!selectedWorkload
-            ? "Select a workload to load logs"
-            : loadingLogs
-              ? "Loading logs..."
-              : "No logs available or no matches"}
-        </p>
-      ) : (
-        <ul className="divide-y divide-line">
-          {filteredLogs.map((item, index) => {
-            const rowKey = `${item.entry.source}-${index}`;
-            const previewChars = item.isJson ? LOG_PREVIEW_CHARS : PLAIN_LOG_PREVIEW_CHARS;
-            const isLongLog = item.oneLine.length > previewChars;
-            const isExpanded = Boolean(expandedLogRows[rowKey]);
-            const displayLine =
-              isLongLog && !isExpanded
-                ? `${item.oneLine.slice(0, previewChars)}...`
-                : item.oneLine;
 
-            const expandButton = isLongLog ? (
-              <button
-                type="button"
-                className="shrink-0 self-start rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold text-muted transition hover:border-accent"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setExpandedLogRows((previous) => ({
-                    ...previous,
-                    [rowKey]: !previous[rowKey],
-                  }));
-                }}
-              >
-                {isExpanded ? "Collapse" : "Expand"}
-              </button>
-            ) : null;
+      {/* Log list */}
+      <div className="ide-scroll" style={{ flex: 1, overflowY: "auto" }}>
+        {filteredLogs.length === 0 ? (
+          <div
+            style={{
+              padding: "40px 20px",
+              textAlign: "center",
+              color: "var(--ds-text-3)",
+              fontSize: 13,
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            {!selectedWorkload
+              ? "Select a workload to load logs."
+              : loadingLogs
+                ? "Loading logs…"
+                : "No logs or no matches."}
+          </div>
+        ) : (
+          <div>
+            {filteredLogs.map((item, index) => {
+              const rowKey = `${item.entry.source}-${index}`;
+              const isExpanded = Boolean(expandedLogRows[rowKey]);
+              const isSelected = selectedLogIndex === index;
+              const formattedJson = item.parsedJson
+                ? JSON.stringify(item.parsedJson, null, 2)
+                : "";
 
-            const jsonToggleIndicator = item.isJson && item.parsedJson ? (
-              <span className="shrink-0 self-start rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold text-muted transition group-hover:border-accent group-open:border-accent group-open:text-foreground">
-                <span className="inline-block transition-transform group-open:rotate-90">▶</span>{" "}
-                JSON
-              </span>
-            ) : null;
+              const ts = item.entry.timestamp
+                ? new Date(item.entry.timestamp).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })
+                : "—";
 
-            const combinedActions = jsonToggleIndicator && expandButton ? (
-              <div className="ml-2 inline-flex shrink-0 self-start overflow-hidden rounded-full border border-line">
-                <span className="min-w-[74px] flex-1 px-2 py-0.5 text-center text-[10px] font-semibold text-muted transition group-hover:border-accent group-open:text-foreground">
-                  <span className="inline-block transition-transform group-open:rotate-90">▶</span>{" "}
-                  JSON
-                </span>
-                <span className="border-l border-line" />
-                <button
-                  type="button"
-                  className="min-w-[74px] flex-1 px-2 py-0.5 text-center text-[10px] font-semibold text-muted transition hover:text-foreground"
-                  onClick={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setExpandedLogRows((previous) => ({
-                      ...previous,
-                      [rowKey]: !previous[rowKey],
-                    }));
-                  }}
-                >
-                  {isExpanded ? "Collapse" : "Expand"}
-                </button>
-              </div>
-            ) : (
-              <span className="ml-2 shrink-0 self-start">{jsonToggleIndicator ?? expandButton}</span>
-            );
+              return (
+                <Fragment key={rowKey}>
+                  <div
+                    className={`ds-tail-row${isSelected ? " ds-selected" : ""}`}
+                    onClick={() =>
+                      setSelectedLogIndex(isSelected ? null : index)
+                    }
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "80px 60px 56px minmax(0, 1fr) auto",
+                      gap: 10,
+                      padding: "4px 14px",
+                      alignItems: "center",
+                      borderBottom: isExpanded
+                        ? "1px solid var(--line)"
+                        : "1px solid var(--ds-bg-2)",
+                      cursor: "pointer",
+                      fontSize: 11.5,
+                      transition: "background 0.08s",
+                    }}
+                  >
+                    {/* Timestamp */}
+                    <span
+                      style={{
+                        color: "var(--ds-text-3)",
+                        fontSize: 10.5,
+                        fontFamily: "var(--font-mono)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {ts}
+                    </span>
 
-            const timeBadge = item.entry.timestamp ? (
-              <span className="shrink-0 rounded-md border border-line px-2 py-0.5 text-[10px] font-semibold tracking-[0.06em] text-foreground/80">
-                {new Date(item.entry.timestamp).toLocaleString()}
-              </span>
-            ) : null;
+                    {/* Level chip */}
+                    <span>
+                      <LevelChip level={item.level} />
+                    </span>
 
-            const levelBadge = item.level ? (
-              <span
-                className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] ${levelBadgeClass(
-                  item.level
-                )}`}
-              >
-                {item.level}
-              </span>
-            ) : null;
-            const formattedJson = item.parsedJson
-              ? JSON.stringify(item.parsedJson, null, 2)
-              : "";
-
-            return (
-              <li key={`${item.entry.source}-${index}`}>
-                {item.isJson && item.parsedJson ? (
-                  <details className="group bg-background/20">
-                    <summary className="list-none cursor-pointer px-3 py-[0.432rem]">
-                      <div className="flex items-start gap-2 text-[10px] leading-[0.744rem]">
-                        {timeBadge}
-                        {levelBadge}
-                        <span className="shrink-0 rounded-md border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold tracking-[0.12em] text-accent">
+                    {/* JSON / source badge */}
+                    <span>
+                      {item.isJson ? (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: "1px 5px",
+                            borderRadius: 3,
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 9.5,
+                            fontWeight: 500,
+                            background: "var(--ds-violet-bg)",
+                            color: "var(--ds-violet)",
+                            border: "1px solid rgba(167,139,250,0.3)",
+                          }}
+                        >
                           JSON
                         </span>
-                        <span className="min-w-0 flex-1 break-all text-foreground">
-                          {renderHighlightedText(displayLine, parsedSearch.text)}
+                      ) : (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            padding: "1px 5px",
+                            borderRadius: 3,
+                            fontFamily: "var(--font-mono)",
+                            fontSize: 9.5,
+                            color: "var(--ds-text-3)",
+                            border: "1px solid var(--line)",
+                            overflow: "hidden",
+                            maxWidth: 50,
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={item.entry.source}
+                        >
+                          {item.entry.source.split("-").slice(-1)[0].slice(0, 6)}
                         </span>
-                        <CopyButton value={formattedJson} label="Copy JSON" />
-                        <CopyButton value={item.entry.line} label="Copy raw" />
-                        {combinedActions}
+                      )}
+                    </span>
+
+                    {/* Message */}
+                    <span
+                      style={{
+                        color: "var(--foreground)",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {highlight(item.oneLine, parsedSearch.text)}
+                    </span>
+
+                    {/* Actions (hover-reveal via CSS class) */}
+                    <span
+                      className="ds-row-actions"
+                      style={{ display: "flex", gap: 4 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <CopyBtn value={item.entry.line} label="copy" />
+                      {item.parsedJson && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedLogRows((prev) => ({
+                              ...prev,
+                              [rowKey]: !prev[rowKey],
+                            }));
+                          }}
+                          style={{
+                            background: "transparent",
+                            border: "1px solid var(--line)",
+                            color: "var(--ds-text-2)",
+                            fontSize: 10,
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            cursor: "pointer",
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          {isExpanded ? "collapse" : "expand"}
+                        </button>
+                      )}
+                    </span>
+                  </div>
+
+                  {isExpanded && item.parsedJson && (
+                    <div
+                      style={{
+                        padding: "10px 14px 12px 150px",
+                        borderBottom: "1px solid var(--line)",
+                        background: "var(--ds-bg-2)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                          marginBottom: 6,
+                          fontSize: 10,
+                          color: "var(--ds-text-3)",
+                        }}
+                      >
+                        <span>Formatted JSON</span>
+                        <CopyBtn value={formattedJson} label="copy JSON" />
+                        <CopyBtn value={item.entry.line} label="copy raw" />
                       </div>
-                    </summary>
-                    <div className="border-t border-line">
-                      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-                        <span className="text-[10px] text-muted">
-                          Formatted JSON with embedded JSON decoded
-                        </span>
-                        <CopyButton value={formattedJson} label="Copy formatted" />
-                        <CopyButton value={item.entry.line} label="Copy raw" />
-                      </div>
-                      <pre className="whitespace-pre-wrap border-t border-line px-3 py-3 text-[9px] leading-[0.84rem] text-muted">
+                      <pre
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontSize: 10.5,
+                          color: "var(--foreground)",
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                          margin: 0,
+                        }}
+                      >
                         {formattedJson}
                       </pre>
                     </div>
-                  </details>
-                ) : (
-                  <div className="bg-background/20 px-3 py-[0.432rem]">
-                    <div className="flex items-start gap-2 text-[10px] leading-[0.744rem]">
-                      {timeBadge}
-                      {levelBadge}
-                      <span className="min-w-0 flex-1 break-all text-foreground">
-                        {renderHighlightedText(displayLine, parsedSearch.text)}
-                      </span>
-                      <CopyButton value={item.entry.line} label="Copy" />
-                      {expandButton ? (
-                        <span className="ml-2 shrink-0 self-start">{expandButton}</span>
-                      ) : null}
-                    </div>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                  )}
+                </Fragment>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
+  );
+}
+
+/* ── Shared control styles ───────────────────────────────────────── */
+
+const controlSelectStyle: React.CSSProperties = {
+  height: 24,
+  background: "var(--ds-bg-2)",
+  border: "1px solid var(--line)",
+  color: "var(--foreground)",
+  fontSize: 11,
+  borderRadius: 6,
+  padding: "0 8px",
+  fontFamily: "inherit",
+  cursor: "pointer",
+  outline: "none",
+};
+
+const controlBtnStyle: React.CSSProperties = {
+  height: 24,
+  padding: "0 8px",
+  border: "1px solid var(--line)",
+  background: "var(--ds-bg-2)",
+  color: "var(--muted)",
+  borderRadius: 6,
+  fontSize: 11,
+  fontFamily: "inherit",
+  cursor: "pointer",
+  whiteSpace: "nowrap",
+};
+
+function TagPill({
+  children,
+  active,
+  onClick,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        height: 22,
+        padding: "0 8px",
+        borderRadius: 4,
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        fontWeight: 500,
+        border: active
+          ? "1px solid var(--ds-mint-d)"
+          : "1px solid var(--line)",
+        background: active ? "var(--ds-mint-bg)" : "transparent",
+        color: active ? "var(--ds-mint)" : "var(--muted)",
+        cursor: "pointer",
+        transition: "all 0.1s",
+      }}
+    >
+      {children}
+    </button>
   );
 }

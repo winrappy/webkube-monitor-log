@@ -82,17 +82,17 @@ function EnvRow({ item }: { item: EnvItem }) {
   const badge = VALUE_BADGE[kind];
 
   return (
-    <div className="flex min-w-0 items-baseline gap-2 border-b border-[#1a2236] px-2 py-0.5 last:border-b-0 hover:bg-[#1a2236]/60">
-      <span className="w-[42%] shrink-0 break-all font-mono text-[11px] font-semibold text-foreground/78">
+    <div className="grid min-w-0 grid-cols-[minmax(160px,36%)_minmax(0,1fr)] gap-4 border-b border-[#1a2236] px-3 py-2 last:border-b-0 hover:bg-[#1a2236]/60">
+      <span className="min-w-0 break-all font-mono text-[11px] font-semibold leading-5 text-foreground/82">
         {item.fullName}
       </span>
-      <span className="flex min-w-0 flex-wrap items-center gap-1">
+      <span className="flex min-w-0 flex-wrap items-start gap-1.5">
         {badge && (
           <span className={`shrink-0 rounded border px-1 py-px font-mono text-[9px] font-bold uppercase tracking-wider ${BADGE_CLASS[kind]}`}>
             {badge}
           </span>
         )}
-        <span className={`break-all font-mono text-[11px] ${VALUE_CLASS[kind]}`}>
+        <span className={`min-w-0 break-all font-mono text-[11px] leading-5 ${VALUE_CLASS[kind]}`}>
           {item.value || <span className="italic text-muted/60">empty</span>}
         </span>
       </span>
@@ -103,7 +103,7 @@ function EnvRow({ item }: { item: EnvItem }) {
 function SubgroupBlock({ sub, singleSub }: { sub: EnvSubgroup; singleSub: boolean }) {
   if (singleSub || sub.subKey === "__leaf__") {
     return (
-      <div>
+      <div className="divide-y-0">
         {sub.items.map((item) => (
           <EnvRow key={item.fullName} item={item} />
         ))}
@@ -113,7 +113,7 @@ function SubgroupBlock({ sub, singleSub }: { sub: EnvSubgroup; singleSub: boolea
 
   return (
     <details className="group/sub">
-      <summary className="flex cursor-pointer list-none items-center gap-2 border-b border-[#1a2236] bg-[#131b28] px-3 py-1 hover:bg-[#19243a]">
+      <summary className="flex cursor-pointer list-none items-center gap-2 border-b border-[#1a2236] bg-[#131b28] px-3 py-1.5 hover:bg-[#19243a]">
         <svg className="size-3 shrink-0 text-muted/50 transition-transform group-open/sub:rotate-90" viewBox="0 0 6 10" fill="currentColor">
           <path d="M1 1l4 4-4 4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -135,7 +135,7 @@ function GroupBlock({ group }: { group: EnvGroup }) {
 
   return (
     <details className="group/g overflow-hidden rounded-lg border border-[#243043]">
-      <summary className="flex cursor-pointer list-none items-center gap-2 bg-[#0f1d20] px-3 py-1.5 hover:bg-[#152628]">
+      <summary className="flex cursor-pointer list-none items-center gap-2 bg-[#0f1d20] px-3 py-2 hover:bg-[#152628]">
         <svg className="size-3 shrink-0 text-accent/60 transition-transform group-open/g:rotate-90" viewBox="0 0 6 10" fill="currentColor">
           <path d="M1 1l4 4-4 4" stroke="currentColor" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -188,8 +188,8 @@ export function EnvTab({ envByContainer, envVars, loadingEnv, selectedWorkload }
   }
 
   return (
-    <div className="mt-4 min-h-0 flex-1 overflow-auto space-y-3">
-      <div className="flex flex-wrap items-center gap-2 pb-0.5">
+    <div className="mt-4 min-h-0 flex-1 overflow-auto space-y-4 pr-1">
+      <div className="flex flex-wrap items-center gap-2 pb-1">
         <span className="text-[10px] uppercase tracking-widest text-muted">Value type</span>
         {(["plain", "secret", "configmap", "fieldref"] as ValueKind[]).map((kind) => (
           <span key={kind} className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold ${BADGE_CLASS[kind]}`}>
@@ -199,7 +199,7 @@ export function EnvTab({ envByContainer, envVars, loadingEnv, selectedWorkload }
       </div>
 
       {Array.from(envByContainer.entries()).map(([container, vars]) => (
-        <div key={container} className="space-y-1.5">
+        <div key={container} className="space-y-2">
           <div className="flex items-center gap-2 pb-0.5">
             <span className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-accent">
               {container}
@@ -209,7 +209,7 @@ export function EnvTab({ envByContainer, envVars, loadingEnv, selectedWorkload }
             </span>
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             {groupEnvVars(vars).map((group) => (
               <GroupBlock key={group.groupKey} group={group} />
             ))}

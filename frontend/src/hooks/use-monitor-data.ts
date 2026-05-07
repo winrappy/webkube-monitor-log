@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -98,6 +100,8 @@ export function useMonitorData() {
     const fetchNamespaces = async () => {
       setLoadingNamespaces(true);
       setError(null);
+      setNamespaces([]);
+      setSelectedNamespace("");
 
       try {
         const params = new URLSearchParams();
@@ -117,7 +121,7 @@ export function useMonitorData() {
 
         if (data.length > 0) {
           const preferredNamespace = data.find((item) => item.name === "mfoa-sit");
-          setSelectedNamespace((current) => current || preferredNamespace?.name || data[0].name);
+          setSelectedNamespace(preferredNamespace?.name ?? data[0].name);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");
@@ -153,7 +157,7 @@ export function useMonitorData() {
           throw new Error("Failed to load workloads");
         }
 
-        const data = (await response.json()) as WorkloadItem[];
+        const data = ((await response.json()) as WorkloadItem[] | null) ?? [];
         setWorkloads(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unknown error");

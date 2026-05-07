@@ -36,7 +36,7 @@ func listWorkloadsCached(ctx context.Context, state *appState, namespace string,
 }
 
 func listWorkloads(ctx context.Context, client *kubernetes.Clientset, namespace string) ([]WorkloadItem, error) {
-	var items []WorkloadItem
+	items := make([]WorkloadItem, 0)
 	deployments, err := client.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, status(http.StatusBadGateway, err)

@@ -555,7 +555,8 @@ export function RequestChain({ namespace, context }: Props) {
   );
 
   return (
-    <section className="glass-panel rounded-2xl p-4">
+    <section className="ide-scroll min-h-0 flex-1 overflow-y-auto p-4">
+      <div className="glass-panel rounded-2xl p-4">
       <div className="flex flex-wrap items-end gap-3">
         <div className="min-w-[260px] flex-1">
           <label className="text-xs uppercase tracking-[0.18em] text-muted">
@@ -838,6 +839,7 @@ export function RequestChain({ namespace, context }: Props) {
           )}
         </div>
       )}
+      </div>
     </section>
   );
 }

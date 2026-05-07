@@ -269,14 +269,30 @@ function DetailPanel({ node, edges, onClose }: DetailPanelProps) {
 
 type Props = {
   map: ServiceMap;
+  selectedNodeId?: string | null;
+  onSelectedNodeIdChange?: (id: string | null) => void;
 };
 
-export function ServiceMapView({ map }: Props) {
+export function ServiceMapView({
+  map,
+  selectedNodeId,
+  onSelectedNodeIdChange,
+}: Props) {
   const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [selectedNode, setSelectedNode] = useState<ServiceMapNode | null>(null);
+  const [localSelectedNodeId, setLocalSelectedNodeId] = useState<string | null>(null);
 
   const positions = useMemo(() => computeLayout(map.nodes), [map.nodes]);
   const { width, height } = useMemo(() => canvasSize(positions), [positions]);
+  const activeSelectedNodeId = selectedNodeId ?? localSelectedNodeId;
+  const selectedNode =
+    map.nodes.find((node) => node.id === activeSelectedNodeId) ?? null;
+  const setSelectedNodeId = (id: string | null) => {
+    if (onSelectedNodeIdChange) {
+      onSelectedNodeIdChange(id);
+    } else {
+      setLocalSelectedNodeId(id);
+    }
+  };
   const cascadeIds = useMemo(
     () => computeCascadeRisk(hoveredId, map.edges),
     [hoveredId, map.edges]
@@ -353,11 +369,11 @@ export function ServiceMapView({ map }: Props) {
                     key={node.id}
                     node={node}
                     pos={pos}
-                    selected={selectedNode?.id === node.id}
+                    selected={activeSelectedNodeId === node.id}
                     atRisk={cascadeIds.has(node.id)}
                     onHover={setHoveredId}
                     onClick={(n) =>
-                      setSelectedNode((prev) => (prev?.id === n.id ? null : n))
+                      setSelectedNodeId(activeSelectedNodeId === n.id ? null : n.id)
                     }
                   />
                 );
@@ -368,7 +384,7 @@ export function ServiceMapView({ map }: Props) {
               <DetailPanel
                 node={selectedNode}
                 edges={map.edges}
-                onClose={() => setSelectedNode(null)}
+                onClose={() => setSelectedNodeId(null)}
               />
             )}
           </div>
