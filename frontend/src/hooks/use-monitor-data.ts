@@ -12,16 +12,23 @@ import {
 import {
   type ActiveTab,
   type ContextInfo,
+  type CrashDiagnostics,
   type EnvVar,
   type LogEntry,
   type NamespaceItem,
   type ParsedLogLine,
   type PodStatusItem,
+  type PodTimeline,
   type TimeMode,
   type WorkloadItem,
+  type WorkloadMetrics,
   type WorkloadSpec,
 } from "@/types/monitor";
-import { detectLogLevel } from "@/utils/monitor";
+import {
+  detectLogLevel,
+  normalizeLogJson,
+  parseLogSearchQuery,
+} from "@/utils/monitor";
 
 export function useMonitorData() {
   const logsAbortRef = useRef<AbortController | null>(null);
@@ -42,6 +49,9 @@ export function useMonitorData() {
   const [envVars, setEnvVars] = useState<EnvVar[]>([]);
   const [podStatuses, setPodStatuses] = useState<PodStatusItem[]>([]);
   const [workloadSpec, setWorkloadSpec] = useState<WorkloadSpec | null>(null);
+  const [timeline, setTimeline] = useState<PodTimeline | null>(null);
+  const [diagnostics, setDiagnostics] = useState<CrashDiagnostics | null>(null);
+  const [metrics, setMetrics] = useState<WorkloadMetrics | null>(null);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("logs");
   const [timeMode, setTimeMode] = useState<TimeMode>("preset");
@@ -54,6 +64,9 @@ export function useMonitorData() {
   const [loadingEnv, setLoadingEnv] = useState(false);
   const [loadingPodStatus, setLoadingPodStatus] = useState(false);
   const [loadingSpec, setLoadingSpec] = useState(false);
+  const [loadingTimeline, setLoadingTimeline] = useState(false);
+  const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const [loadingMetrics, setLoadingMetrics] = useState(false);
 
   const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null);
   const [selectedContext, setSelectedContext] = useState("");
@@ -163,13 +176,15 @@ export function useMonitorData() {
 
     setLoadingLogs(true);
     setError(null);
+    setLogs([]);
 
     try {
+      const parsedSearch = parseLogSearchQuery(search);
       const params = new URLSearchParams({
         namespace: selectedWorkload.namespace,
         kind: selectedWorkload.kind,
         name: selectedWorkload.name,
-        search: search.trim(),
+        search: parsedSearch.text,
       });
 
       if (timeMode === "custom") {
@@ -190,16 +205,62 @@ export function useMonitorData() {
         params.set("context", selectedContext);
       }
 
-      const response = await fetch(`${apiBase}/api/logs?${params.toString()}`, {
-        signal: controller.signal,
-      });
+      const response = await fetch(
+        `${apiBase}/api/logs/stream?${params.toString()}`,
+        { signal: controller.signal }
+      );
 
       if (!response.ok) {
         throw new Error("Failed to load logs");
       }
+      if (!response.body) {
+        throw new Error("No response body");
+      }
 
-      const data = (await response.json()) as LogEntry[];
-      setLogs(data);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let lineBuffer = "";
+      const pending: LogEntry[] = [];
+
+      const sortLogs = (entries: LogEntry[]) =>
+        entries.sort((a, b) => {
+          if (a.timestamp && b.timestamp)
+            return b.timestamp.localeCompare(a.timestamp);
+          if (a.timestamp) return -1;
+          if (b.timestamp) return 1;
+          return a.source.localeCompare(b.source);
+        });
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        lineBuffer += decoder.decode(value, { stream: true });
+        const lines = lineBuffer.split("\n");
+        lineBuffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6).trim();
+            if (data) {
+              try {
+                pending.push(JSON.parse(data) as LogEntry);
+              } catch {
+                // skip malformed SSE data lines
+              }
+            }
+          }
+        }
+
+        // Flush every chunk so logs appear as each pod responds.
+        if (pending.length > 0) {
+          const batch = pending.splice(0);
+          setLogs((prev) => [...prev, ...batch]);
+        }
+      }
+
+      // Final sort once the stream closes — all pods have responded.
+      setLogs((prev) => sortLogs([...prev]));
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
         return;
@@ -316,25 +377,86 @@ export function useMonitorData() {
     }
   };
 
+  const workloadParams = (workload: WorkloadItem) => {
+    const params = new URLSearchParams({
+      namespace: workload.namespace,
+      kind: workload.kind,
+      name: workload.name,
+    });
+    if (selectedContext) {
+      params.set("context", selectedContext);
+    }
+    return params;
+  };
+
+  const fetchTimeline = async (workload: WorkloadItem) => {
+    setLoadingTimeline(true);
+    setTimeline(null);
+    try {
+      const response = await fetch(`${apiBase}/api/timeline?${workloadParams(workload).toString()}`);
+      if (!response.ok) throw new Error("Failed to load timeline");
+      setTimeline((await response.json()) as PodTimeline);
+    } catch {
+      setTimeline(null);
+    } finally {
+      setLoadingTimeline(false);
+    }
+  };
+
+  const fetchDiagnostics = async (workload: WorkloadItem) => {
+    setLoadingDiagnostics(true);
+    setDiagnostics(null);
+    try {
+      const response = await fetch(`${apiBase}/api/diagnostics?${workloadParams(workload).toString()}`);
+      if (!response.ok) throw new Error("Failed to load diagnostics");
+      setDiagnostics((await response.json()) as CrashDiagnostics);
+    } catch {
+      setDiagnostics(null);
+    } finally {
+      setLoadingDiagnostics(false);
+    }
+  };
+
+  const fetchMetrics = async (workload: WorkloadItem) => {
+    setLoadingMetrics(true);
+    setMetrics(null);
+    try {
+      const response = await fetch(`${apiBase}/api/metrics?${workloadParams(workload).toString()}`);
+      if (!response.ok) throw new Error("Failed to load metrics");
+      setMetrics((await response.json()) as WorkloadMetrics);
+    } catch {
+      setMetrics({ available: false, message: "Metrics unavailable", items: [] });
+    } finally {
+      setLoadingMetrics(false);
+    }
+  };
+
   useEffect(() => {
     if (selectedWorkload) {
       fetchEnv(selectedWorkload);
       fetchPodStatus(selectedWorkload);
       fetchWorkloadSpec(selectedWorkload);
+      fetchTimeline(selectedWorkload);
+      fetchDiagnostics(selectedWorkload);
+      fetchMetrics(selectedWorkload);
     } else {
       setEnvVars([]);
       setPodStatuses([]);
       setWorkloadSpec(null);
+      setTimeline(null);
+      setDiagnostics(null);
+      setMetrics(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedWorkload, selectedContext]);
 
   const filteredLogs = useMemo(() => {
-    if (!search.trim()) {
+    const parsedSearch = parseLogSearchQuery(search);
+    if (!parsedSearch.text) {
       return logs;
     }
 
-    const term = search.toLowerCase();
+    const term = parsedSearch.text.toLowerCase();
     return logs.filter((entry) => entry.line.toLowerCase().includes(term));
   }, [logs, search]);
 
@@ -401,6 +523,7 @@ export function useMonitorData() {
       if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
         try {
           const parsedJson = JSON.parse(trimmed) as Record<string, unknown>;
+          const normalizedJson = normalizeLogJson(parsedJson) as Record<string, unknown>;
           const message =
             typeof parsedJson.message === "string"
               ? parsedJson.message
@@ -411,7 +534,7 @@ export function useMonitorData() {
           return {
             entry,
             isJson: true,
-            parsedJson,
+            parsedJson: normalizedJson,
             oneLine: message,
             level: detectLogLevel(parsedJson),
           };
@@ -449,10 +572,15 @@ export function useMonitorData() {
     filteredNamespaces,
     filteredWorkloads,
     loadingEnv,
+    loadingDiagnostics,
     loadingLogs,
+    loadingMetrics,
     loadingNamespaces,
     loadingPodStatus,
     loadingSpec,
+    loadingTimeline,
+    diagnostics,
+    metrics,
     loadingWorkloads,
     namespaces,
     namespaceSearch,
@@ -466,6 +594,7 @@ export function useMonitorData() {
     selectedWorkload,
     sinceMinutes,
     timeMode,
+    timeline,
     totalWorkloadPages,
     workloads,
     workloadSpec,

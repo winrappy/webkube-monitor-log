@@ -1,10 +1,13 @@
 import type {
   ActiveTab,
+  CrashDiagnostics,
   EnvVar,
   ParsedLogLine,
   PodStatusItem,
+  PodTimeline,
   TimeMode,
   WorkloadItem,
+  WorkloadMetrics,
 } from "@/types/monitor";
 import {
   podPhaseBadgeClass,
@@ -14,6 +17,7 @@ import {
 } from "@/utils/monitor";
 
 import { EnvTab } from "@/components/env-tab";
+import { HealthTab } from "@/components/health-tab";
 import { LogsTab } from "@/components/logs-tab";
 import { SpecTab } from "@/components/spec-tab";
 
@@ -25,14 +29,20 @@ type WorkloadDetailsProps = {
   envVars: EnvVar[];
   error: string | null;
   expandedLogRows: Record<string, boolean>;
+  diagnostics: CrashDiagnostics | null;
   loadingEnv: boolean;
+  loadingDiagnostics: boolean;
   loadingLogs: boolean;
+  loadingMetrics: boolean;
   loadingPodStatus: boolean;
   parsedLogs: ParsedLogLine[];
+  metrics: WorkloadMetrics | null;
   podStatuses: PodStatusItem[];
   search: string;
   selectedWorkload: WorkloadItem | null;
   loadingSpec: boolean;
+  loadingTimeline: boolean;
+  timeline: PodTimeline | null;
   workloadSpec: { kind: string; name: string; namespace: string; spec: Record<string, unknown> | null } | null;
   sinceMinutes: number;
   timeMode: TimeMode;
@@ -56,16 +66,22 @@ export function WorkloadDetails({
   envVars,
   error,
   expandedLogRows,
+  diagnostics,
   fetchLogs,
   loadingEnv,
+  loadingDiagnostics,
   loadingLogs,
+  loadingMetrics,
   loadingPodStatus,
+  loadingTimeline,
+  metrics,
   parsedLogs,
   podStatuses,
   search,
   selectedWorkload,
   loadingSpec,
   workloadSpec,
+  timeline,
   setActiveTab,
   setCustomEnd,
   setCustomStart,
@@ -151,6 +167,16 @@ export function WorkloadDetails({
           Environment{envVars.length > 0 ? ` (${envVars.length})` : ""}
         </button>
         <button
+          onClick={() => setActiveTab("health")}
+          className={`px-4 py-2 text-sm font-medium transition ${
+            activeTab === "health"
+              ? "border-b-2 border-accent text-foreground"
+              : "text-muted hover:text-foreground"
+          }`}
+        >
+          Health
+        </button>
+        <button
           onClick={() => setActiveTab("spec")}
           className={`px-4 py-2 text-sm font-medium transition ${
             activeTab === "spec"
@@ -195,6 +221,18 @@ export function WorkloadDetails({
           envVars={envVars}
           loadingEnv={loadingEnv}
           selectedWorkload={selectedWorkload}
+        />
+      ) : null}
+
+      {activeTab === "health" ? (
+        <HealthTab
+          diagnostics={diagnostics}
+          loadingDiagnostics={loadingDiagnostics}
+          loadingMetrics={loadingMetrics}
+          loadingTimeline={loadingTimeline}
+          metrics={metrics}
+          selectedWorkload={selectedWorkload}
+          timeline={timeline}
         />
       ) : null}
 

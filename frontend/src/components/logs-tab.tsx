@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import type { MouseEvent, ReactNode } from "react";
 
 import {
   LOG_PREVIEW_CHARS,
@@ -7,7 +7,12 @@ import {
   sinceOptions,
 } from "@/constants/monitor";
 import type { ParsedLogLine, TimeMode, WorkloadItem } from "@/types/monitor";
-import { escapeRegExp, levelBadgeClass } from "@/utils/monitor";
+import {
+  escapeRegExp,
+  levelBadgeClass,
+  parseLogSearchQuery,
+  type FieldSearchToken,
+} from "@/utils/monitor";
 
 type LogsTabProps = {
   parsedLogs: ParsedLogLine[];
@@ -55,6 +60,98 @@ function renderHighlightedText(text: string, searchTerm: string): ReactNode {
   });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function directFieldValue(
+  json: Record<string, unknown>,
+  key: string
+): unknown {
+  if (Object.prototype.hasOwnProperty.call(json, key)) {
+    return json[key];
+  }
+
+  const wanted = key.toLowerCase();
+  const matchedKey = Object.keys(json).find((item) => item.toLowerCase() === wanted);
+  return matchedKey ? json[matchedKey] : undefined;
+}
+
+function readFieldValue(json: Record<string, unknown>, key: string): unknown {
+  const direct = directFieldValue(json, key);
+  if (direct !== undefined) return direct;
+
+  const parts = key.split(".").filter(Boolean);
+  let current: unknown = json;
+  for (const part of parts) {
+    if (Array.isArray(current)) {
+      const index = Number(part);
+      current = Number.isInteger(index) ? current[index] : undefined;
+      continue;
+    }
+    if (!isRecord(current)) return undefined;
+    current = directFieldValue(current, part);
+  }
+  return current;
+}
+
+function fieldValueText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function matchesFieldFilter(
+  json: Record<string, unknown>,
+  key: string,
+  value: string
+): boolean {
+  const actual = fieldValueText(readFieldValue(json, key)).toLowerCase();
+  return actual.includes(value.toLowerCase());
+}
+
+function matchesFieldFilters(
+  json: Record<string, unknown> | null,
+  filters: FieldSearchToken[]
+): boolean {
+  if (filters.length === 0) return true;
+  if (!json) return false;
+  return filters.every((filter) =>
+    matchesFieldFilter(json, filter.key.trim(), filter.value.trim())
+  );
+}
+
+function CopyButton({
+  value,
+  label,
+  className = "",
+}: {
+  value: string;
+  label: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await navigator.clipboard.writeText(value);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      className={`rounded-full border border-line px-2 py-0.5 text-[10px] font-semibold text-muted transition hover:border-accent hover:text-foreground ${className}`}
+    >
+      {copied ? "Copied" : label}
+    </button>
+  );
+}
+
 export function LogsTab({
   expandedLogRows,
   loadingLogs,
@@ -89,6 +186,16 @@ export function LogsTab({
   );
   const [fieldKey, setFieldKey] = useState("");
   const [fieldValue, setFieldValue] = useState("");
+  const parsedSearch = useMemo(() => parseLogSearchQuery(search), [search]);
+  const fieldFilters = useMemo(() => {
+    const filters = [...parsedSearch.fields];
+    const keyTrim = fieldKey.trim();
+    const valueTrim = fieldValue.trim();
+    if (keyTrim && valueTrim) {
+      filters.push({ key: keyTrim, value: valueTrim });
+    }
+    return filters;
+  }, [fieldKey, fieldValue, parsedSearch.fields]);
 
   // Reset to "all" when available tags change (new workload/log set loaded)
   const availableTagsKey = useMemo(() => allTags.join(","), [allTags]);
@@ -115,20 +222,7 @@ export function LogsTab({
     });
   };
 
-  // TODO: implement this — see the contribution request below
-  function matchesFieldFilter(
-    _json: Record<string, unknown>,
-    _key: string,
-    _value: string
-  ): boolean {
-    return false; // placeholder: always no-match until implemented
-  }
-
   const filteredLogs = useMemo(() => {
-    const keyTrim = fieldKey.trim();
-    const valTrim = fieldValue.trim();
-    const applyFieldFilter = keyTrim !== "" && valTrim !== "";
-
     return parsedLogs.filter((item) => {
       // Tag filter
       if (!selectedTags.has("__all__")) {
@@ -139,15 +233,16 @@ export function LogsTab({
         if (!tagMatch) return false;
       }
 
-      // JSON field filter — only applies when both inputs are filled
-      if (applyFieldFilter) {
-        if (!item.parsedJson) return false;
-        if (!matchesFieldFilter(item.parsedJson, keyTrim, valTrim)) return false;
-      }
+      if (!matchesFieldFilters(item.parsedJson, fieldFilters)) return false;
 
       return true;
     });
-  }, [parsedLogs, selectedTags, fieldKey, fieldValue]);
+  }, [parsedLogs, selectedTags, fieldFilters]);
+
+  const jsonLogCount = useMemo(
+    () => parsedLogs.filter((item) => item.parsedJson).length,
+    [parsedLogs]
+  );
 
   const showToolbar = true;
 
@@ -209,14 +304,14 @@ export function LogsTab({
             <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1">
               <input
-                className="w-32 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-violet-400"
-                placeholder="Field (e.g. X-Request-ID)"
+                className="w-36 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-accent"
+                placeholder="Field"
                 value={fieldKey}
                 onChange={(e) => setFieldKey(e.target.value)}
               />
               <span className="text-[10px] text-muted">:</span>
               <input
-                className="w-40 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-violet-400"
+                className="w-40 rounded-full border border-line bg-surface px-3 py-1.5 text-xs outline-none transition placeholder:text-muted/60 focus:border-accent"
                 placeholder="Value"
                 value={fieldValue}
                 onChange={(e) => setFieldValue(e.target.value)}
@@ -282,8 +377,8 @@ export function LogsTab({
             )}
 
             <input
-              className="w-48 rounded-full border border-line bg-surface px-4 py-1.5 text-xs outline-none transition focus:border-accent"
-              placeholder="Search logs"
+              className="w-56 rounded-full border border-line bg-surface px-4 py-1.5 text-xs outline-none transition focus:border-accent"
+              placeholder="Search text or field:value"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -297,6 +392,28 @@ export function LogsTab({
             </button>
             </div>
           </div>
+          {(fieldFilters.length > 0 || parsedSearch.text || parsedLogs.length > 0) && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-line pt-2 text-[10px]">
+              <span className="text-muted">
+                Showing {filteredLogs.length}/{parsedLogs.length} logs
+              </span>
+              <span className="text-muted">|</span>
+              <span className="text-muted">{jsonLogCount} JSON logs searchable by field</span>
+              {parsedSearch.text && (
+                <span className="rounded-full border border-sky-400/40 bg-sky-500/10 px-2 py-0.5 font-semibold text-sky-200">
+                  text: {parsedSearch.text}
+                </span>
+              )}
+              {fieldFilters.map((filter, index) => (
+                <span
+                  key={`${filter.key}-${filter.value}-${index}`}
+                  className="rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 font-semibold text-accent"
+                >
+                  {filter.key}:{filter.value}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
       <div className="overflow-auto p-4">
@@ -385,6 +502,9 @@ export function LogsTab({
                 {item.level}
               </span>
             ) : null;
+            const formattedJson = item.parsedJson
+              ? JSON.stringify(item.parsedJson, null, 2)
+              : "";
 
             return (
               <li key={`${item.entry.source}-${index}`}>
@@ -398,14 +518,25 @@ export function LogsTab({
                           JSON
                         </span>
                         <span className="min-w-0 flex-1 break-all text-foreground">
-                          {renderHighlightedText(displayLine, search)}
+                          {renderHighlightedText(displayLine, parsedSearch.text)}
                         </span>
+                        <CopyButton value={formattedJson} label="Copy JSON" />
+                        <CopyButton value={item.entry.line} label="Copy raw" />
                         {combinedActions}
                       </div>
                     </summary>
-                    <pre className="whitespace-pre-wrap border-t border-line px-3 py-3 text-[9px] leading-[0.84rem] text-muted">
-                      {JSON.stringify(item.parsedJson, null, 2)}
-                    </pre>
+                    <div className="border-t border-line">
+                      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+                        <span className="text-[10px] text-muted">
+                          Formatted JSON with embedded JSON decoded
+                        </span>
+                        <CopyButton value={formattedJson} label="Copy formatted" />
+                        <CopyButton value={item.entry.line} label="Copy raw" />
+                      </div>
+                      <pre className="whitespace-pre-wrap border-t border-line px-3 py-3 text-[9px] leading-[0.84rem] text-muted">
+                        {formattedJson}
+                      </pre>
+                    </div>
                   </details>
                 ) : (
                   <div className="bg-background/20 px-3 py-[0.432rem]">
@@ -413,8 +544,9 @@ export function LogsTab({
                       {timeBadge}
                       {levelBadge}
                       <span className="min-w-0 flex-1 break-all text-foreground">
-                        {renderHighlightedText(displayLine, search)}
+                        {renderHighlightedText(displayLine, parsedSearch.text)}
                       </span>
+                      <CopyButton value={item.entry.line} label="Copy" />
                       {expandButton ? (
                         <span className="ml-2 shrink-0 self-start">{expandButton}</span>
                       ) : null}

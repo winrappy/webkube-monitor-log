@@ -5,16 +5,17 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: kubeweb-backend
+    container_name: go-kube-monitor-backend
     environment:
       PORT: 8081
+      GRPC_PORT: 9090
       AUTH_REQUIRED: ${AUTH_REQUIRED:-false}
       KUBECONFIG: /root/.kube/config
       CLOUDSDK_CONFIG: /root/.config/gcloud
       USE_GKE_GCLOUD_AUTH_PLUGIN: "True"
-      RUST_LOG: ${RUST_LOG}
     ports:
       - "${BACKEND_PORT}:8081"
+      - "${GRPC_PORT}:9090"
     volumes:
       - ${HOME}/.kube:/root/.kube:ro
       - ${HOME}/.config/gcloud:/root/.config/gcloud
@@ -26,7 +27,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
-    container_name: kubeweb-frontend
+    container_name: go-kube-monitor-frontend
     depends_on:
       - backend
     environment:

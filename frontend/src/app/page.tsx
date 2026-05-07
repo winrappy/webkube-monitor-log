@@ -3,6 +3,7 @@
 import { WORKLOADS_PER_PAGE } from "@/constants/monitor";
 import { ContextSelector } from "@/components/context-selector";
 import { GlobalSearch } from "@/components/global-search";
+import { RequestChain } from "@/components/request-chain";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { WorkloadDetails } from "@/components/workload-details";
 import { WorkloadExplorer } from "@/components/workload-explorer";
@@ -67,6 +68,11 @@ export default function Home() {
           workloadsPerPage={WORKLOADS_PER_PAGE}
         />
 
+        <RequestChain
+          namespace={monitor.selectedNamespace}
+          context={monitor.selectedContext}
+        />
+
         <WorkloadDetails
           activeTab={monitor.activeTab}
           customEnd={monitor.customEnd}
@@ -75,16 +81,22 @@ export default function Home() {
           envVars={monitor.envVars}
           error={monitor.error}
           expandedLogRows={monitor.expandedLogRows}
+          diagnostics={monitor.diagnostics}
+          loadingDiagnostics={monitor.loadingDiagnostics}
           loadingEnv={monitor.loadingEnv}
           loadingLogs={monitor.loadingLogs}
+          loadingMetrics={monitor.loadingMetrics}
           loadingPodStatus={monitor.loadingPodStatus}
           loadingSpec={monitor.loadingSpec}
+          loadingTimeline={monitor.loadingTimeline}
+          metrics={monitor.metrics}
           parsedLogs={monitor.parsedLogs}
           podStatuses={monitor.podStatuses}
           search={monitor.search}
           selectedWorkload={monitor.selectedWorkload}
           sinceMinutes={monitor.sinceMinutes}
           timeMode={monitor.timeMode}
+          timeline={monitor.timeline}
           workloadSpec={monitor.workloadSpec}
           setActiveTab={monitor.setActiveTab}
           setCustomEnd={monitor.setCustomEnd}

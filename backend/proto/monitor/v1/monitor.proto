@@ -1,0 +1,200 @@
+syntax = "proto3";
+
+package monitor.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "go-kube-monitor/backend/internal/pb;pb";
+
+service MonitorService {
+  rpc GetContext(GetContextRequest) returns (ContextInfo);
+  rpc ListNamespaces(ListNamespacesRequest) returns (ListNamespacesResponse);
+  rpc ListWorkloads(ListWorkloadsRequest) returns (ListWorkloadsResponse);
+  rpc GetLogs(GetLogsRequest) returns (GetLogsResponse);
+  rpc StreamLogs(GetLogsRequest) returns (stream LogEntry);
+  rpc SearchLogsGlobal(SearchLogsGlobalRequest) returns (SearchLogsGlobalResponse);
+  rpc GetEnv(GetWorkloadRequest) returns (GetEnvResponse);
+  rpc GetPodStatus(GetWorkloadRequest) returns (GetPodStatusResponse);
+  rpc GetWorkloadSpec(GetWorkloadRequest) returns (WorkloadSpecItem);
+  rpc GetServiceMap(GetServiceMapRequest) returns (ServiceMap);
+  rpc GetTimeline(GetWorkloadRequest) returns (PodTimeline);
+  rpc GetDiagnostics(GetWorkloadRequest) returns (CrashDiagnostics);
+  rpc GetMetrics(GetWorkloadRequest) returns (WorkloadMetrics);
+}
+
+message GetContextRequest {}
+
+message ContextInfo {
+  optional string kube_context = 1;
+  optional string cluster = 2;
+  optional string gcloud_project = 3;
+  repeated string contexts = 4;
+}
+
+message ListNamespacesRequest {
+  string context = 1;
+}
+
+message ListNamespacesResponse {
+  repeated NamespaceItem namespaces = 1;
+}
+
+message NamespaceItem {
+  string name = 1;
+}
+
+message ListWorkloadsRequest {
+  string namespace = 1;
+  string context = 2;
+}
+
+message ListWorkloadsResponse {
+  repeated WorkloadItem workloads = 1;
+}
+
+message WorkloadItem {
+  string kind = 1;
+  string name = 2;
+  string namespace = 3;
+  map<string, string> selector = 4;
+}
+
+message GetLogsRequest {
+  string namespace = 1;
+  string kind = 2;
+  string name = 3;
+  string search = 4;
+  uint32 since_minutes = 5;
+  string start_time = 6;
+  string end_time = 7;
+  string context = 8;
+}
+
+message GetLogsResponse {
+  repeated LogEntry logs = 1;
+}
+
+message LogEntry {
+  string source = 1;
+  string line = 2;
+  optional string timestamp = 3;
+}
+
+message SearchLogsGlobalRequest {
+  string namespace = 1;
+  string search = 2;
+  uint32 since_minutes = 3;
+  string context = 4;
+}
+
+message SearchLogsGlobalResponse {
+  repeated GlobalLogEntry logs = 1;
+}
+
+message GlobalLogEntry {
+  string workload_kind = 1;
+  string workload_name = 2;
+  string source = 3;
+  string line = 4;
+  optional string timestamp = 5;
+}
+
+message GetWorkloadRequest {
+  string namespace = 1;
+  string kind = 2;
+  string name = 3;
+  string context = 4;
+}
+
+message GetEnvResponse {
+  repeated EnvVar env = 1;
+}
+
+message EnvVar {
+  string container = 1;
+  string name = 2;
+  string value = 3;
+}
+
+message GetPodStatusResponse {
+  repeated PodStatusItem pods = 1;
+}
+
+message PodStatusItem {
+  string name = 1;
+  string phase = 2;
+  string ready = 3;
+  int32 restarts = 4;
+}
+
+message PodTimeline {
+  repeated PodEvent events = 1;
+}
+
+message PodEvent {
+  string event_type = 1;
+  string reason = 2;
+  string source = 3;
+  string message = 4;
+  string timestamp = 5;
+  int32 count = 6;
+}
+
+message CrashDiagnostics {
+  repeated CrashDiagnostic items = 1;
+}
+
+message CrashDiagnostic {
+  string pod = 1;
+  string container = 2;
+  string severity = 3;
+  string reason = 4;
+  string message = 5;
+  int32 restarts = 6;
+}
+
+message WorkloadMetrics {
+  bool available = 1;
+  string message = 2;
+  repeated ContainerMetric items = 3;
+}
+
+message ContainerMetric {
+  string pod = 1;
+  string container = 2;
+  int64 cpu_usage_nano = 3;
+  int64 memory_usage_bytes = 4;
+}
+
+message WorkloadSpecItem {
+  string kind = 1;
+  string name = 2;
+  string namespace = 3;
+  google.protobuf.Struct spec = 4;
+}
+
+message GetServiceMapRequest {
+  string namespace = 1;
+  string context = 2;
+}
+
+message ServiceMap {
+  repeated ServiceMapNode nodes = 1;
+  repeated ServiceMapEdge edges = 2;
+}
+
+message ServiceMapNode {
+  string id = 1;
+  string kind = 2;
+  string name = 3;
+  string health = 4;
+  int32 total_pods = 5;
+  int32 ready_pods = 6;
+  int32 restart_count = 7;
+}
+
+message ServiceMapEdge {
+  string source = 1;
+  string target = 2;
+  string edge_type = 3;
+}
