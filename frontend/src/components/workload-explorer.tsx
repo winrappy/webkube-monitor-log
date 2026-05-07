@@ -328,7 +328,7 @@ export function WorkloadExplorer({
             marginTop: 4,
           }}
         >
-          <Kbd>1</Kbd> tail &nbsp; <Kbd>2</Kbd> graph &nbsp; <Kbd>3</Kbd> trace
+          <Kbd>1</Kbd> tail &nbsp; <Kbd>2</Kbd> trace
         </div>
       </div>
     </aside>
