@@ -1,8 +1,9 @@
-FROM rust:1-bookworm AS builder
+FROM golang:1.26.2-bookworm AS builder
 WORKDIR /app
-COPY Cargo.toml ./
-COPY src ./src
-RUN cargo build --release
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/go-kube-monitor ./cmd/server
 
 FROM debian:bookworm-slim AS runner
 WORKDIR /app
@@ -17,6 +18,7 @@ RUN apt-get update \
 		&& apt-get install -y --no-install-recommends google-cloud-cli google-cloud-cli-gke-gcloud-auth-plugin \
 		&& rm -rf /var/lib/apt/lists/*
 ENV PATH="/usr/lib/google-cloud-sdk/bin:${PATH}"
-COPY --from=builder /app/target/release/kubeweb-backend /usr/local/bin/kubeweb-backend
+COPY --from=builder /out/go-kube-monitor /usr/local/bin/go-kube-monitor
 EXPOSE 8081
-CMD ["/usr/local/bin/kubeweb-backend"]
+EXPOSE 9090
+CMD ["/usr/local/bin/go-kube-monitor"]

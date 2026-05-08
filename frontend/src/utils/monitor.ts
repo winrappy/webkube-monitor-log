@@ -1,5 +1,10 @@
 import type { WorkloadKind } from "@/types/monitor";
 
+export type FieldSearchToken = {
+  key: string;
+  value: string;
+};
+
 export function detectLogLevel(data: Record<string, unknown>): string | null {
   const keys = ["level", "logLevel", "log_level", "severity", "lvl"];
   for (const key of keys) {
@@ -68,4 +73,83 @@ export function workloadKindLabel(kind: WorkloadKind): string {
 
 export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function parseLogSearchQuery(value: string): {
+  text: string;
+  fields: FieldSearchToken[];
+} {
+  const fields: FieldSearchToken[] = [];
+  const text = value
+    .replace(
+      /(^|\s)([A-Za-z_][A-Za-z0-9_.-]*):("[^"]*"|'[^']*'|[^\s]+)/g,
+      (match, prefix: string, key: string, rawValue: string) => {
+        const parsedValue = rawValue.replace(/^["']|["']$/g, "").trim();
+        if (!parsedValue || parsedValue.startsWith("//")) {
+          return match;
+        }
+        fields.push({ key, value: parsedValue });
+        return prefix;
+      }
+    )
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { text, fields };
+}
+
+function parseJsonObjectString(value: string): unknown | null {
+  const trimmed = value.trim();
+  if (
+    !(
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    )
+  ) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function parseEmbeddedJsonString(value: string): unknown {
+  const fullJson = parseJsonObjectString(value);
+  if (fullJson !== null) {
+    return normalizeLogJson(fullJson);
+  }
+
+  const start = value.indexOf("{");
+  const end = value.lastIndexOf("}");
+  if (start === -1 || end <= start) {
+    return value;
+  }
+
+  const parsed = parseJsonObjectString(value.slice(start, end + 1));
+  if (parsed === null) {
+    return value;
+  }
+
+  return {
+    text: value.slice(0, start).replace(/\s*:\s*$/, "").trim(),
+    payload: normalizeLogJson(parsed),
+  };
+}
+
+export function normalizeLogJson(value: unknown): unknown {
+  if (typeof value === "string") {
+    return parseEmbeddedJsonString(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeLogJson(item));
+  }
+  if (typeof value === "object" && value !== null) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, normalizeLogJson(item)])
+    );
+  }
+  return value;
 }

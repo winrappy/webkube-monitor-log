@@ -5,17 +5,19 @@ import { useEffect, useState } from "react";
 type Theme = "dark" | "light";
 
 export function useTheme() {
-  const [theme, setTheme] = useState<Theme>("dark");
-
-  useEffect(() => {
+  const [theme, setTheme] = useState<Theme>(() => {
+    if (typeof window === "undefined") return "dark";
     const stored = localStorage.getItem("theme") as Theme | null;
     const preferred = window.matchMedia("(prefers-color-scheme: light)").matches
       ? "light"
       : "dark";
-    const initial = stored ?? preferred;
-    applyTheme(initial);
-    setTheme(initial);
-  }, []);
+    return stored ?? preferred;
+  });
+
+  useEffect(() => {
+    applyTheme(theme);
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   const toggle = () => {
     setTheme((current) => {
